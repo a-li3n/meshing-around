@@ -207,6 +207,11 @@ def handle_ping(message_from_id, deviceID,  message, hop, snr, rssi, isDM, chann
                 if multiPingList[i].get('message_from_id') == message_from_id:
                     multiPingList.pop(i)
                     msg = "🛑 auto-ping"
+                    break
+            for i in range(0, len(multiPingList)):
+                if multiPingList[i].get('message_from_id') == message_from_id:
+                    multiPingList.pop(i)
+                    msg = "🛑 auto-ping"
 
 
         # if 3 or more entries (2 or more active), throttle the multi-ping for congestion
@@ -214,11 +219,11 @@ def handle_ping(message_from_id, deviceID,  message, hop, snr, rssi, isDM, chann
             msg = "🚫⛔️ auto-ping, service busy. ⏳Try again soon."
             pingCount = -1
         else:
-            # set inital pingCount
+            # set initial pingCount
             try:
                 pingCount = int(message.split(" ")[1])
                 if pingCount == 123 or pingCount == 1234:
-                    pingCount =  1
+                    pingCount = 1
                 elif not autoPingInChannel and not isDM:
                     # no autoping in channels
                     pingCount = 1
@@ -231,9 +236,9 @@ def handle_ping(message_from_id, deviceID,  message, hop, snr, rssi, isDM, chann
         if pingCount > 1:
             multiPingList.append({'message_from_id': message_from_id, 'count': pingCount + 1, 'type': type, 'deviceID': deviceID, 'channel_number': channel_number, 'startCount': pingCount})
             if type == "🎙TEST":
-                msg = f"🛜Initalizing BufferTest, using chunks of about {int(maxBuffer // pingCount)}, max length {maxBuffer} in {pingCount} messages"
+                msg = f"🛜Initializing BufferTest, using chunks of about {int(maxBuffer // pingCount)}, max length {maxBuffer} in {pingCount} messages"
             else:
-                msg = f"🚦Initalizing {pingCount} auto-ping"
+                msg = f"🚦Initializing {pingCount} auto-ping"
 
     # if not a DM add the username to the beginning of msg
     if not useDMForResponse and not isDM:
@@ -257,7 +262,7 @@ def handle_emergency(message_from_id, deviceID, message):
         nodeLocation = get_node_location(message_from_id, deviceID)
         # if default location is returned set to Unknown
         if nodeLocation[0] == latitudeValue and nodeLocation[1] == longitudeValue:
-            nodeLocation = ["?", "?"]
+            nodeLocation = ["Unknown", "Unknown"]
         nodeInfo = f"{get_name_from_number(message_from_id, 'short', deviceID)} detected by {get_name_from_number(myNodeNum, 'short', deviceID)} lastGPS {nodeLocation[0]}, {nodeLocation[1]}"
         msg = f"🔔🚨Intercepted Possible Emergency Assistance needed for: {nodeInfo}"
         # alert the emergency_responder_alert_channel
@@ -266,8 +271,8 @@ def handle_emergency(message_from_id, deviceID, message):
         logger.warning(f"System: {message_from_id} Emergency Assistance Requested in {message}")
         # send the message out via email/sms
         if enableSMTP:
-            for user in sysopEmails:
-                send_email(user, f"Emergency Assistance Requested by {nodeInfo} in {message}", message_from_id)
+            for email in sysopEmails:
+                send_email(email, f"Emergency Alert: {nodeInfo}", msg)
         # respond to the user
         time.sleep(responseDelay + 2)
         return EMERGENCY_RESPONSE
@@ -350,8 +355,7 @@ def handle_satpass(message_from_id, deviceID, channel_number, message):
     for bird in satList:
         satPass = getNextSatellitePass(bird, str(location[0]), str(location[1]))
         if satPass:
-            # append to passes
-            passes = passes + satPass + "\n"
+            passes += f"{satPass}\n"
     # remove the last newline
     passes = passes[:-1]
 
@@ -390,6 +394,12 @@ def handle_llm(message_from_id, channel_number, deviceID, message, publicChannel
 
         # check for a welcome message (is this redundant?)
         if not any(node['nodeID'] == message_from_id and node['welcome'] == True for node in seenNodes):
+            msg = f"Welcome {get_name_from_number(message_from_id, 'short', deviceID)}! "
+            # update seenNodes to mark as welcomed
+            for node in seenNodes:
+                if node['nodeID'] == message_from_id:
+                    node['welcome'] = True
+                    break
             if (channel_number == publicChannel and antiSpam) or useDMForResponse:
                 # send via DM
                 send_message(welcome_message, channel_number, message_from_id, deviceID)
@@ -407,6 +417,7 @@ def handle_llm(message_from_id, channel_number, deviceID, message, publicChannel
     for i in range(0, len(llmLocationTable)):
         if llmLocationTable[i].get('nodeID') == message_from_id:
             llmLocationTable[i]['location'] = location_name
+            break
 
     # if not in table add the location
     if not any(d['nodeID'] == message_from_id for d in llmLocationTable):
@@ -453,6 +464,7 @@ def handleDopeWars(message, nodeID, rxNode):
     for i in range(0, len(dwPlayerTracker)):
         if dwPlayerTracker[i].get('userID') == nodeID:
             last_cmd = dwPlayerTracker[i].get('cmd')
+            break
     
     # welcome new player
     if not last_cmd and nodeID != 0:
@@ -500,6 +512,7 @@ def handleLemonade(message, nodeID, deviceID):
     for i in range(len(lemonadeTracker)):
         if lemonadeTracker[i]['nodeID'] == nodeID:
             last_cmd = lemonadeTracker[i]['cmd']
+            break
 
     logger.debug(f"System: {nodeID} PlayingGame lemonstand last_cmd: {last_cmd}")
     # create new player if not in tracker
@@ -1039,24 +1052,67 @@ def handle_whois(message, deviceID, channel_number, message_from_id):
                     msg += f"Loc: {where_am_i(str(location[0]), str(location[1]))}"
         return msg
 
-def check_and_play_game(tracker, message_from_id, message_string, rxNode, channel_number, game_name, handle_game_func):
-    global llm_enabled
-
-    for i in range(len(tracker)):
-        if tracker[i].get('nodeID') == message_from_id or tracker[i].get('userID') == message_from_id:
-            last_played_key = 'last_played' if 'last_played' in tracker[i] else 'time'
-            if tracker[i].get(last_played_key) > (time.time() - GAMEDELAY):
-                if llm_enabled:
-                    logger.debug(f"System: LLM Disabled for {message_from_id} for duration of {game_name}")
-
-                # play the game
-                send_message(handle_game_func(message_string, message_from_id, rxNode), channel_number, message_from_id, rxNode)
-                return True, game_name
+def handle_wifi_command(message, message_from_id, deviceID):
+    """Handle WiFi toggle commands with error handling"""
+    if not enable_runShellCmd:
+        return "🚫WiFi control disabled in config"
+    
+    # Check if user has permission (admin check)
+    isAdmin = False
+    if bbs_admin_list != ['']:
+        for admin in bbs_admin_list:
+            if str(message_from_id) == admin:
+                isAdmin = True
+                break
+    else:
+        isAdmin = True
+    
+    if not isAdmin:
+        return "🚫Access denied - admin only"
+    
+    command = message.lower().strip()
+    script_path = "script/wifiToggle.sh"
+    
+    try:
+        # Determine which WiFi command to execute
+        if command == "wifioff":
+            # Force WiFi off by running the script when WiFi is currently on
+            output = call_external_script("force_off", script_path)
+            if output and "WiFi is now DOWN" in output:
+                return "📶➡️📵WiFi turned OFF"
+            elif output and "DOWN" in output:
+                return "📵WiFi already OFF"
             else:
-                # pop if the time exceeds 8 hours
-                tracker.pop(i)
-                return False, game_name
-    return False, "None"
+                return "⚠️Failed to turn WiFi OFF"
+                
+        elif command == "wifion":
+            # Force WiFi on by running the script when WiFi is currently off
+            output = call_external_script("force_on", script_path)
+            if output and "WiFi is now UP" in output:
+                return "📵➡️📶WiFi turned ON"
+            elif output and "UP" in output:
+                return "📶WiFi already ON"
+            else:
+                return "⚠️Failed to turn WiFi ON"
+                
+        elif command.startswith("wifi"):
+            # Toggle WiFi state
+            output = call_external_script("toggle", script_path)
+            if output:
+                if "WiFi is now UP" in output:
+                    return "📵➡️📶WiFi toggled ON"
+                elif "WiFi is now DOWN" in output:
+                    return "📶➡️📵WiFi toggled OFF"
+                else:
+                    return f"📶WiFi status: {output.strip()}"
+            else:
+                return "⚠️WiFi toggle failed"
+        else:
+            return "❓Usage: wifi, wifion, or wifioff"
+            
+    except Exception as e:
+        logger.error(f"System: WiFi command error: {e}")
+        return "💥WiFi command failed - check logs"
 
 def checkPlayingGame(message_from_id, message_string, rxNode, channel_number):
     playingGame = False
@@ -1080,6 +1136,20 @@ def checkPlayingGame(message_from_id, message_string, rxNode, channel_number):
             break
 
     return playingGame
+
+def check_and_play_game(tracker, message_from_id, message_string, rxNode, channel_number, game_name, handle_game_func):
+    """Helper function to check if a user is playing a game and handle the game response"""
+    global llm_enabled
+
+    for i in range(len(tracker)):
+        if tracker[i].get('nodeID') == message_from_id or tracker[i].get('userID') == message_from_id:
+            logger.debug(f"System: {message_from_id} is playing {game_name}")
+            # User is playing this game, handle the message
+            response = handle_game_func(message_string, message_from_id, rxNode)
+            send_message(response, channel_number, message_from_id, rxNode)
+            time.sleep(responseDelay)
+            return True, game_name
+    return False, "None"
 
 def onReceive(packet, interface):
     global seenNodes
@@ -1152,7 +1222,7 @@ def onReceive(packet, interface):
 
     # BBS DM MAIL CHECKER
     if bbs_enabled and 'decoded' in packet:
-        
+        # Check for pending mail for this node
         msg = bbs_check_dm(message_from_id)
         if msg:
             # wait a responseDelay to avoid message collision from lora-ack.
@@ -1169,7 +1239,8 @@ def onReceive(packet, interface):
             message_string = message_bytes.decode('utf-8')
 
             # check if the packet is from us
-            if message_from_id in [myNodeNum1, myNodeNum2, myNodeNum3, myNodeNum4, myNodeNum5, myNodeNum6, myNodeNum7, myNodeNum8, myNodeNum9]:
+            my_node_nums = [globals().get(f'myNodeNum{i}', 0) for i in range(1, 10)]
+            if message_from_id in my_node_nums:
                 logger.warning(f"System: Packet from self {message_from_id} loop or traffic replay detected")
 
             # get the signal strength and snr if available
@@ -1231,7 +1302,8 @@ def onReceive(packet, interface):
                 return
         
             # If the packet is a DM (Direct Message) respond to it, otherwise validate its a message for us on the channel
-            if packet['to'] in [myNodeNum1, myNodeNum2, myNodeNum3, myNodeNum4, myNodeNum5, myNodeNum6, myNodeNum7, myNodeNum8, myNodeNum9]:
+            my_node_nums = [globals().get(f'myNodeNum{i}', 0) for i in range(1, 10)]
+            if packet['to'] in my_node_nums:
                 # message is DM to us
                 isDM = True
                 # check if the message contains a trap word, DMs are always responded to
