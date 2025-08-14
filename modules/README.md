@@ -52,3 +52,59 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     "switchON": lambda: call_external_script(message)
 ```
 This would call the default script located in script/runShell.sh and return its output.
+
+### Running a Shell command for WiFi Control
+
+Using the WiFi control commands and enabling the filemon module with shell commands, you can control the host's WiFi adapter via Meshtastic DM. The system includes three WiFi control commands:
+
+- `wifi` - Toggle WiFi state (on to off, or off to on)
+- `wifion` - Force WiFi on regardless of current state
+- `wifioff` - Force WiFi off regardless of current state
+
+These commands include proper error handling and admin-only access control. They utilize the `wifiToggle.sh` script which:
+
+1. Checks current WiFi interface state
+2. Manages both interface up/down and USB power control for WiFi adapters
+3. Handles NetworkManager/systemd-networkd service restarts
+4. Provides detailed status feedback
+
+```python
+def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_number, deviceID, isDM):
+    #...
+    "wifi": lambda: handle_wifi_command(message, message_from_id, deviceID),
+    "wifioff": lambda: handle_wifi_command("wifioff", message_from_id, deviceID),
+    "wifion": lambda: handle_wifi_command("wifion", message_from_id, deviceID),
+```
+
+The WiFi commands require:
+- `enable_runShellCmd = True` in config.ini under [fileMon]
+- Admin privileges (checked via bbs_admin_list)
+- The wifiToggle.sh script to be present and executable
+
+### Running other Shell commands
+
+For other shell commands, you can still use the general approach:
+
+```python
+def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_number, deviceID, isDM):
+    #...
+    "switchON": lambda: call_external_script(message)
+```
+This would call the default script located in script/runShell.sh and return its output.("wifion", message_from_id, deviceID),
+```
+
+The WiFi commands require:
+- `enable_runShellCmd = True` in config.ini under [fileMon]
+- Admin privileges (checked via bbs_admin_list)
+- The wifiToggle.sh script to be present and executable
+
+### Running other Shell commands
+
+For other shell commands, you can still use the general approach:
+
+```python
+def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_number, deviceID, isDM):
+    #...
+    "switchON": lambda: call_external_script(message)
+```
+This would call the default script located in script/runShell.sh and return its output

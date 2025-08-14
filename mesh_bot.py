@@ -11,11 +11,13 @@ except ImportError:
 import asyncio
 import time # for sleep, get some when you can :)
 import random
+import subprocess
+import os
 from modules.log import *
 from modules.system import *
 
 # list of commands to remove from the default list for DM only
-restrictedCommands = ["blackjack", "videopoker", "dopewars", "lemonstand", "golfsim", "mastermind", "hangman", "hamtest"]
+restrictedCommands = ["blackjack", "videopoker", "dopewars", "lemonstand", "golfsim", "mastermind", "hangman", "hamtest", "wifi", "wifioff", "wifion"]
 restrictedResponse = "🤖only available in a Direct Message📵" # "" for none
 
 # Global Variables
@@ -84,6 +86,9 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     "sysinfo": lambda: sysinfo(message, message_from_id, deviceID),
     "test": lambda: handle_ping(message_from_id, deviceID, message, hop, snr, rssi, isDM, channel_number),
     "testing": lambda: handle_ping(message_from_id, deviceID, message, hop, snr, rssi, isDM, channel_number),
+    "wifi": lambda: handle_wifi_command(message, message_from_id, deviceID),
+    "wifioff": lambda: handle_wifi_command("wifioff", message_from_id, deviceID),
+    "wifion": lambda: handle_wifi_command("wifion", message_from_id, deviceID),
     "tide": lambda: handle_tide(message_from_id, deviceID, channel_number),
     "valert": lambda: get_volcano_usgs(),
     "videopoker": lambda: handleVideoPoker(message, message_from_id, deviceID),

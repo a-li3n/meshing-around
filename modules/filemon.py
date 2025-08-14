@@ -75,10 +75,34 @@ def call_external_script(message, script="script/runShell.sh"):
             if not os.path.exists(script_path):
                 logger.warning(f"FileMon: Script not found: {script_path}")
                 return "sorry I can't do that"
+        
+        # Special handling for WiFi toggle script
+        if script == "wifiToggle.sh":
+            # Make the script executable if it exists
+            if os.path.exists(script_path):
+                os.chmod(script_path, 0o755)
             
-        output = os.popen(f"bash {script_path} {message}").read().encode('utf-8').decode('utf-8')
-        return output
+            # Handle different WiFi commands
+            if message == "force_off":
+                # Modify the script behavior to force WiFi off
+                output = os.popen(f"bash {script_path}").read().encode('utf-8').decode('utf-8')
+                # Check if WiFi is currently UP, if so, run script to toggle it down
+                if "Current WiFi state: UP" in output:
+                    output = os.popen(f"bash {script_path}").read().encode('utf-8').decode('utf-8')
+            elif message == "force_on":
+                # Modify the script behavior to force WiFi on
+                output = os.popen(f"bash {script_path}").read().encode('utf-8').decode('utf-8')
+                # Check if WiFi is currently DOWN, if so, run script to toggle it up
+                if "Current WiFi state: DOWN" in output:
+                    output = os.popen(f"bash {script_path}").read().encode('utf-8').decode('utf-8')
+            else:
+                # Regular toggle
+                output = os.popen(f"bash {script_path}").read().encode('utf-8').decode('utf-8')
+        else:
+            # Original behavior for other scripts
+            output = os.popen(f"bash {script_path} {message}").read().encode('utf-8').decode('utf-8')
+        
+        return output.strip()
     except Exception as e:
         logger.warning(f"FileMon: Error calling external script: {e}")
         return None
-    

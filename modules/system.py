@@ -241,7 +241,7 @@ if radio_detection_enabled:
     from modules.radio import * # from the spudgunman/meshing-around repo
 
 # File Monitor Configuration
-if file_monitor_enabled or read_news_enabled or bee_enabled:
+if file_monitor_enabled or read_news_enabled or bee_enabled or enable_runShellCmd:
     from modules.filemon import * # from the spudgunman/meshing-around repo
     if read_news_enabled:
         trap_list = trap_list + trap_list_filemon # items readnews
@@ -249,6 +249,10 @@ if file_monitor_enabled or read_news_enabled or bee_enabled:
     # Bee Configuration uses file monitor module
     if bee_enabled:
         trap_list = trap_list + ("🐝",)
+    # WiFi Control Configuration
+    if enable_runShellCmd:
+        trap_list = trap_list + ("wifi", "wifion", "wifioff")
+        help_message = help_message + ", wifi controls"
 
 # clean up the help message
 help_message = help_message.split(", ")

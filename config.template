@@ -265,7 +265,8 @@ news_file_path = news.txt
 # only return a single random line from the news file
 news_random_line = False
 # enable the use of exernal shell commands
-enable_runShellCmd = False
+# enable the use of external shell commands
+enable_runShellCmd = False = False
 
 [smtp]
 # enable or disable the SMTP module

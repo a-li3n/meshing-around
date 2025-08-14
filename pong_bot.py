@@ -37,6 +37,9 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
         "sysinfo": lambda: sysinfo(message, message_from_id, deviceID),
         "test": lambda: handle_ping(message_from_id, deviceID, message, hop, snr, rssi, isDM, channel_number),
         "testing": lambda: handle_ping(message_from_id, deviceID, message, hop, snr, rssi, isDM, channel_number),
+        "wifi": lambda: handle_wifi_command(message, message_from_id, deviceID) if enable_runShellCmd else "WiFi control disabled",
+        "wifioff": lambda: handle_wifi_command("wifioff", message_from_id, deviceID) if enable_runShellCmd else "WiFi control disabled",
+        "wifion": lambda: handle_wifi_command("wifion", message_from_id, deviceID) if enable_runShellCmd else "WiFi control disabled",
     }
     cmds = [] # list to hold the commands found in the message
     for key in command_handler:
@@ -385,6 +388,83 @@ def onReceive(packet, interface):
     except KeyError as e:
         logger.critical(f"System: Error processing packet: {e} Device:{rxNode}")
         logger.debug(f"System: Error Packet = {packet}")
+
+def handle_wifi_command(message, message_from_id, deviceID):
+    """Handle WiFi toggle commands with error handling"""
+    if not enable_runShellCmd:
+        return "🚫WiFi control disabled in config"
+    
+    # Check if user has permission (admin check)
+    isAdmin = False
+    if bbs_admin_list != ['']:
+        for admin in bbs_admin_list:
+            if str(message_from_id) == admin:
+                isAdmin = True
+                break
+    else:
+        isAdmin = True
+    
+    if not isAdmin:
+        return "🚫Access denied - admin only"
+    
+    command = message.lower().strip()
+    script_path = "script/wifiToggle.sh"
+    
+    try:
+        # Determine which WiFi command to execute
+        if command == "wifioff":
+            # Force WiFi off by running the script when WiFi is currently on
+            output = call_external_script("force_off", script_path)
+            if output and "WiFi is now DOWN" in output:
+                return "📶➡️📵WiFi turned OFF"
+            elif output and "DOWN" in output:
+                return "📵WiFi already OFF"
+            else:
+                return "⚠️Failed to turn WiFi OFF"
+                
+        elif command == "wifion":
+            # Force WiFi on by running the script when WiFi is currently off
+            output = call_external_script("force_on", script_path)
+            if output and "WiFi is now UP" in output:
+                return "📵➡️📶WiFi turned ON"
+            elif output and "UP" in output:
+                return "📶WiFi already ON"
+            else:
+                return "⚠️Failed to turn WiFi ON"
+                
+        elif command.startswith("wifi"):
+            # Toggle WiFi state
+            output = call_external_script("toggle", script_path)
+            if output:
+                if "WiFi is now UP" in output:
+                    return "📵➡️📶WiFi toggled ON"
+                elif "WiFi is now DOWN" in output:
+                    return "📶➡️📵WiFi toggled OFF"
+                else:
+                    return f"📶WiFi status: {output.strip()}"
+            else:
+                return "⚠️WiFi toggle failed"
+        else:
+            return "❓Usage: wifi, wifion, or wifioff"
+            
+    except Exception as e:
+        logger.error(f"System: WiFi command error: {e}")
+        return "💥WiFi command failed - check logs"
+
+def handle_history(message, nodeid, deviceID, isDM, lheard=False):
+    global cmdHistory, lheardCmdIgnoreNode, bbs_admin_list
+    msg = ""
+    buffer = []
+    
+    if  "?" in message and isDM:
+        return message.split("?")[0].title() + " command returns a list of the last commands used."
+
+    # show the last commands from the user to the bot
+    if not lheard:
+        msg = "Last CMD run:\n"
+    else:
+        msg = "LastSeen\n"
+    return msg
 
 async def start_rx():
     print (CustomFormatter.bold_white + f"\nMeshtastic Autoresponder Bot CTL+C to exit\n" + CustomFormatter.reset)

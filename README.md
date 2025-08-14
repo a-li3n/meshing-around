@@ -93,6 +93,9 @@ git clone https://github.com/spudgunman/meshing-around
 | `motd` | Displays the message of the day or sets it. Example: `motd $New Message Of the day` | ✅ |
 | `sysinfo` | Returns the bot node telemetry info | ✅ |
 | `test` | used to test the limits of data transfer `test 4` sends data to the maxBuffer limit (default 220) via DM only | ✅ |
+| `wifi` | Toggle WiFi on/off (admin only, requires shell commands enabled) | ✅ |
+| `wifion` | Force WiFi on (admin only, requires shell commands enabled) | ✅ |
+| `wifioff` | Force WiFi off (admin only, requires shell commands enabled) | ✅ |
 | `whereami` | Returns the address of the sender's location if known |
 | `whoami` | Returns details of the node asking, also returned when position exchanged 📍 | ✅ |
 | `whois` | Returns details known about node, more data with bbsadmin node | ✅ |
