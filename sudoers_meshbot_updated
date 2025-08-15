@@ -1,0 +1,18 @@
+# Sudoers configuration for meshbot user
+# Copy this to /etc/sudoers.d/meshbot or add to main sudoers file
+# Usage: sudo cp sudoers_meshbot /etc/sudoers.d/meshbot && sudo chmod 440 /etc/sudoers.d/meshbot
+
+# Allow meshbot user to run WiFi management commands without password
+meshbot ALL=(ALL) NOPASSWD: /usr/sbin/ip
+meshbot ALL=(ALL) NOPASSWD: /usr/bin/tee
+meshbot ALL=(ALL) NOPASSWD: /usr/bin/pkill
+meshbot ALL=(ALL) NOPASSWD: /usr/sbin/wpa_supplicant
+meshbot ALL=(ALL) NOPASSWD: /usr/sbin/dhclient
+meshbot ALL=(ALL) NOPASSWD: /usr/sbin/iw
+meshbot ALL=(ALL) NOPASSWD: /usr/bin/iw
+meshbot ALL=(ALL) NOPASSWD: /sbin/iw
+meshbot ALL=(ALL) NOPASSWD: /bin/systemctl restart networking
+meshbot ALL=(ALL) NOPASSWD: /bin/systemctl restart systemd-resolved
+
+# Alternative: Allow all commands (less secure)
+# meshbot ALL=(ALL) NOPASSWD: ALL
