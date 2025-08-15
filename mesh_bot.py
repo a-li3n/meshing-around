@@ -1071,7 +1071,7 @@ def handle_wifi_command(message, message_from_id, deviceID):
         return "🚫Access denied - admin only"
     
     command = message.lower().strip()
-    script_path = "script/wifiToggle_safe.sh"  # Use the safer script
+    script_path = "script/wifiToggle_ultra_safe.sh"  # Use the ultra-safe script
     
     try:
         # Determine which WiFi command to execute
