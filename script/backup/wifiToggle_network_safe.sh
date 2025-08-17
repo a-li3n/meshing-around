@@ -3,7 +3,7 @@
 # Usage: ./wifiToggle_network_safe.sh [on|off|toggle|force_on|force_off]
 
 INTERFACE="wlan0"
-USB_DEVICE="/sys/bus/usb/devices/1-1.3/power/control"
+USB_DEVICE="/sys/bus/usb/devices/1-1/power/control"
 
 # Function to get current WiFi state
 get_wifi_state() {

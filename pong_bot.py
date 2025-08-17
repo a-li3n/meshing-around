@@ -11,6 +11,7 @@ except ImportError:
 import asyncio
 import time # for sleep, get some when you can :)
 import random
+import os
 from modules.log import *
 from modules.system import *
 
@@ -40,6 +41,8 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
         "wifi": lambda: handle_wifi_command(message, message_from_id, deviceID) if enable_runShellCmd else "WiFi control disabled",
         "wifioff": lambda: handle_wifi_command("wifioff", message_from_id, deviceID) if enable_runShellCmd else "WiFi control disabled",
         "wifion": lambda: handle_wifi_command("wifion", message_from_id, deviceID) if enable_runShellCmd else "WiFi control disabled",
+        "shutdown": lambda: handle_system_command("shutdown", message_from_id, deviceID) if enable_runShellCmd else "System commands disabled",
+        "reboot": lambda: handle_system_command("reboot", message_from_id, deviceID) if enable_runShellCmd else "System commands disabled",
     }
     cmds = [] # list to hold the commands found in the message
     for key in command_handler:
@@ -450,6 +453,60 @@ def handle_wifi_command(message, message_from_id, deviceID):
     except Exception as e:
         logger.error(f"System: WiFi command error: {e}")
         return "💥WiFi command failed - check logs"
+
+def handle_system_command(command, message_from_id, deviceID):
+    """Handle system shutdown and reboot commands with error handling"""
+    if not enable_runShellCmd:
+        return "🚫System commands disabled in config"
+    
+    # Check if user has permission (admin check)
+    isAdmin = False
+    if bbs_admin_list != ['']:
+        for admin in bbs_admin_list:
+            if str(message_from_id) == admin:
+                isAdmin = True
+                break
+    else:
+        isAdmin = True
+    
+    if not isAdmin:
+        return "🚫Access denied - admin only"
+    
+    try:
+        if command == "shutdown":
+            logger.warning(f"System: SHUTDOWN command initiated by {get_name_from_number(message_from_id, 'long', deviceID)}")
+            # Send immediate response before shutdown
+            response = "🔴System shutting down in 5 seconds..."
+            # Delay shutdown to allow message to be sent
+            import threading
+            def delayed_shutdown():
+                import time
+                time.sleep(5)
+                os.system("sudo halt")
+            
+            threading.Thread(target=delayed_shutdown, daemon=True).start()
+            return response
+            
+        elif command == "reboot":
+            logger.warning(f"System: REBOOT command initiated by {get_name_from_number(message_from_id, 'long', deviceID)}")
+            # Send immediate response before reboot
+            response = "🔄System rebooting in 5 seconds..."
+            # Delay reboot to allow message to be sent
+            import threading
+            def delayed_reboot():
+                import time
+                time.sleep(5)
+                os.system("sudo reboot")
+            
+            threading.Thread(target=delayed_reboot, daemon=True).start()
+            return response
+            
+        else:
+            return "❓Usage: shutdown or reboot"
+            
+    except Exception as e:
+        logger.error(f"System: System command error: {e}")
+        return "💥System command failed - check logs"
 
 def handle_history(message, nodeid, deviceID, isDM, lheard=False):
     global cmdHistory, lheardCmdIgnoreNode, bbs_admin_list
