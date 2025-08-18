@@ -9,11 +9,27 @@ WPA_CONF="/etc/wpa_supplicant/wpa_supplicant.conf"
 
 # Function to setup GPIO if needed
 setup_gpio() {
+    echo "Setting up GPIO $GPIO_PIN..."
+    
     if [ ! -d "$GPIO_PATH" ]; then
+        echo "Exporting GPIO $GPIO_PIN..."
         echo "$GPIO_PIN" > /sys/class/gpio/export 2>/dev/null
-        sleep 0.2
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to export GPIO $GPIO_PIN"
+            return 1
+        fi
+        sleep 0.5
     fi
-    echo "out" > ${GPIO_PATH}/direction 2>/dev/null
+    
+    echo "Setting GPIO direction to output..."
+    echo "out" | sudo tee ${GPIO_PATH}/direction > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to set GPIO direction"
+        return 1
+    fi
+    
+    echo "GPIO $GPIO_PIN setup complete"
+    echo "GPIO permissions: $(ls -la ${GPIO_PATH}/value 2>/dev/null || echo 'PERMISSION CHECK FAILED')"
 }
 
 # Function to get current WiFi power state
@@ -47,22 +63,58 @@ wifi_on() {
     setup_gpio
     
     # Power on TPS61023 boost converter
-    echo "1" > ${GPIO_PATH}/value
+    echo "Attempting to set GPIO to HIGH..."
+    echo "1" | sudo tee ${GPIO_PATH}/value > /dev/null 2>&1
+    GPIO_RESULT=$?
+    
+    if [ $GPIO_RESULT -ne 0 ]; then
+        echo "ERROR: Failed to write to GPIO (exit code: $GPIO_RESULT)"
+        echo "Checking GPIO permissions..."
+        ls -la ${GPIO_PATH}/value
+        echo "Checking GPIO ownership..."
+        ls -la ${GPIO_PATH}/
+        return 1
+    fi
+    
     echo "WiFi power enabled via GPIO"
+    
+    # Verify GPIO was actually set
+    sleep 0.5
+    ACTUAL_VALUE=$(cat ${GPIO_PATH}/value 2>/dev/null)
+    echo "GPIO verification - Expected: 1, Actual: $ACTUAL_VALUE"
+    
+    if [ "$ACTUAL_VALUE" != "1" ]; then
+        echo "ERROR: GPIO value verification failed!"
+        echo "GPIO may not be controlling the boost converter properly"
+        return 1
+    fi
     
     # Wait for USB enumeration
     echo "Waiting for USB enumeration..."
-    sleep 3
+    sleep 5  # Increased from 3 to 5 seconds
+    
+    # Check if GPIO is actually set
+    echo "GPIO status: $(cat ${GPIO_PATH}/value 2>/dev/null || echo 'ERROR')"
     
     # Wait for interface to appear
-    for i in {1..10}; do
+    for i in {1..15}; do  # Increased from 10 to 15 attempts
         if ip link show $INTERFACE >/dev/null 2>&1; then
             echo "Interface $INTERFACE detected"
             break
         fi
-        echo "Waiting for interface... ($i/10)"
-        sleep 1
+        echo "Waiting for interface... ($i/15)"
+        sleep 2  # Increased from 1 to 2 seconds between checks
     done
+    
+    # Check if we found the interface
+    if ! ip link show $INTERFACE >/dev/null 2>&1; then
+        echo "ERROR: Interface $INTERFACE never appeared!"
+        echo "Available interfaces:"
+        ip link show | grep -E "^[0-9]+:" | cut -d: -f2 | tr -d ' '
+        echo "USB devices:"
+        lsusb 2>/dev/null || echo "lsusb command failed"
+        return 1
+    fi
     
     # Bring interface up
     echo "Bringing interface up..."
@@ -118,7 +170,7 @@ wifi_off() {
     
     # Power off TPS61023 boost converter (hardware power cut)
     # No software cleanup needed - hardware cut handles everything
-    echo "0" > ${GPIO_PATH}/value
+    echo "0" | sudo tee ${GPIO_PATH}/value > /dev/null
     echo "WiFi power disabled via GPIO - hardware power cut"
     
     sleep 1
