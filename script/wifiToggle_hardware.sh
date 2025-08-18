@@ -78,6 +78,9 @@ wifi_on() {
     
     echo "WiFi power enabled via GPIO"
     
+    # Create intent file for watchdog service
+    echo "$(date +%s)" > /tmp/wifi_intent
+    
     # Verify GPIO was actually set
     sleep 0.5
     ACTUAL_VALUE=$(cat ${GPIO_PATH}/value 2>/dev/null)
@@ -128,22 +131,73 @@ wifi_on() {
     # Start wpa_supplicant
     if [ -f "$WPA_CONF" ]; then
         echo "Starting wpa_supplicant..."
-        sudo wpa_supplicant -B -i $INTERFACE -c $WPA_CONF 2>/dev/null
         
-        # Wait for association
+        # Validate config file first
+        if ! wpa_supplicant -c $WPA_CONF -i $INTERFACE -D nl80211 -N > /dev/null 2>&1; then
+            echo "ERROR: Invalid wpa_supplicant configuration in $WPA_CONF"
+            echo "Please check the configuration file for syntax errors"
+            return 1
+        fi
+        
+        # Determine best driver for this interface
+        WPA_DRIVER="nl80211"
+        if ! iw dev $INTERFACE info >/dev/null 2>&1; then
+            echo "nl80211 not supported, falling back to wext"
+            WPA_DRIVER="wext"
+        fi
+        
+        echo "Using wpa_supplicant driver: $WPA_DRIVER"
+        
+        # Start wpa_supplicant in background with optimal driver
+        sudo wpa_supplicant -B -i $INTERFACE -c $WPA_CONF -D $WPA_DRIVER 2>&1 | grep -v -E "(Successfully initialized wpa_supplicant|rfkill: Cannot open RFKILL control device|ioctl\[SIOCSIWENCODEEXT\]: Invalid argument)"
+        
+        # Wait for association with better checking
         echo "Waiting for WiFi association..."
-        for i in {1..15}; do
+        ASSOCIATED=false
+        for i in {1..30}; do  # Increased from 15 to 30 attempts
+            # Check multiple ways to verify association
             if iw dev $INTERFACE link 2>/dev/null | grep -q "Connected"; then
-                echo "WiFi associated successfully"
+                echo "WiFi associated successfully via iw"
+                ASSOCIATED=true
                 break
+            elif iwconfig $INTERFACE 2>/dev/null | grep -q "Access Point:"; then
+                AP=$(iwconfig $INTERFACE 2>/dev/null | grep "Access Point:" | awk '{print $6}')
+                if [ "$AP" != "Not-Associated" ] && [ "$AP" != "00:00:00:00:00:00" ]; then
+                    echo "WiFi associated successfully via iwconfig to $AP"
+                    ASSOCIATED=true
+                    break
+                fi
             fi
-            sleep 1
+            echo "Association attempt $i/30..."
+            sleep 2
         done
         
-        # Get IP via DHCP
+        if [ "$ASSOCIATED" = "false" ]; then
+            echo "WARNING: WiFi association failed after 30 attempts"
+            echo "Checking available networks:"
+            sudo iw dev $INTERFACE scan 2>/dev/null | grep -E "SSID|signal|freq" | head -20 || echo "Scan failed - may need to wait for hardware"
+            echo "Checking wpa_supplicant status:"
+            sudo wpa_cli -i $INTERFACE status 2>/dev/null || echo "wpa_cli failed"
+            # Continue anyway - sometimes DHCP works even without showing as associated
+        fi
+        
+        # Get IP via DHCP with more aggressive retry
         echo "Requesting DHCP lease..."
-        sudo dhclient $INTERFACE 2>/dev/null || echo "DHCP request failed"
-        sleep 2
+        
+        # First try: standard dhclient
+        sudo dhclient $INTERFACE 2>/dev/null
+        sleep 3
+        
+        # Check if we got an IP
+        local ip_check=$(ip addr show $INTERFACE 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1)
+        if [ -z "$ip_check" ]; then
+            echo "First DHCP attempt failed, trying with verbose mode..."
+            # Second try: release and renew
+            sudo dhclient -r $INTERFACE 2>/dev/null || true
+            sleep 2
+            sudo dhclient -v $INTERFACE 2>/dev/null || echo "DHCP request failed"
+            sleep 3
+        fi
         
     else
         echo "Warning: $WPA_CONF not found"
@@ -172,6 +226,9 @@ wifi_off() {
     # No software cleanup needed - hardware cut handles everything
     echo "0" | sudo tee ${GPIO_PATH}/value > /dev/null
     echo "WiFi power disabled via GPIO - hardware power cut"
+    
+    # Remove intent file to signal watchdog that WiFi should be off
+    rm -f /tmp/wifi_intent
     
     sleep 1
     echo "WiFi hardware power: $(get_wifi_power_state)"

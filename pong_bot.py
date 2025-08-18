@@ -411,7 +411,7 @@ def handle_wifi_command(message, message_from_id, deviceID):
         return "🚫Access denied - admin only"
     
     command = message.lower().strip()
-    script_path = "script/wifiToggle.sh"
+    script_path = "script/wifiToggle_hardware.sh"
     
     try:
         # Determine which WiFi command to execute
