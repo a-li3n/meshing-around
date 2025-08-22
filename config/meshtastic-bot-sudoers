@@ -1,0 +1,36 @@
+# Sudoers configuration for Meshtastic Bot
+# This file should be placed in /etc/sudoers.d/
+# Usage: sudo cp config/meshtastic-bot-sudoers /etc/sudoers.d/meshtastic-bot
+
+# Replace 'meshbot' with your actual username that runs the bot
+# Replace 'femto' with your actual username if different
+
+# Allow WiFi GPIO control without password
+meshbot ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/class/gpio/gpio4/value
+femto ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/class/gpio/gpio4/value
+
+# Allow system shutdown and reboot without password
+meshbot ALL=(ALL) NOPASSWD: /sbin/halt
+meshbot ALL=(ALL) NOPASSWD: /sbin/reboot
+meshbot ALL=(ALL) NOPASSWD: /usr/sbin/halt
+meshbot ALL=(ALL) NOPASSWD: /usr/sbin/reboot
+femto ALL=(ALL) NOPASSWD: /sbin/halt
+femto ALL=(ALL) NOPASSWD: /sbin/reboot
+femto ALL=(ALL) NOPASSWD: /usr/sbin/halt
+femto ALL=(ALL) NOPASSWD: /usr/sbin/reboot
+
+# Alternative system shutdown commands (some systems use different paths)
+meshbot ALL=(ALL) NOPASSWD: /bin/systemctl halt
+meshbot ALL=(ALL) NOPASSWD: /bin/systemctl reboot
+meshbot ALL=(ALL) NOPASSWD: /usr/bin/systemctl halt
+meshbot ALL=(ALL) NOPASSWD: /usr/bin/systemctl reboot
+femto ALL=(ALL) NOPASSWD: /bin/systemctl halt
+femto ALL=(ALL) NOPASSWD: /bin/systemctl reboot
+femto ALL=(ALL) NOPASSWD: /usr/bin/systemctl halt
+femto ALL=(ALL) NOPASSWD: /usr/bin/systemctl reboot
+
+# If using shutdown command instead of halt
+meshbot ALL=(ALL) NOPASSWD: /sbin/shutdown
+meshbot ALL=(ALL) NOPASSWD: /usr/sbin/shutdown
+femto ALL=(ALL) NOPASSWD: /sbin/shutdown
+femto ALL=(ALL) NOPASSWD: /usr/sbin/shutdown
