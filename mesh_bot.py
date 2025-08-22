@@ -1752,7 +1752,7 @@ def handle_wifi_command(message, message_from_id, deviceID):
         return "🚫Access denied - admin only"
     
     command = message.lower().strip()
-    script_path = "script/wifiToggle_hardware.sh"  # Use the hardware control script
+    script_path = "script/wifiToggle_simple.sh"  # Use the simple GPIO-only control script
     
     try:
         # Determine which WiFi command to execute
