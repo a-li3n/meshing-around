@@ -123,8 +123,6 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     "wifion": lambda: handle_wifi_command("wifion", message_from_id, deviceID),
     "shutdown": lambda: handle_system_command("shutdown", message_from_id, deviceID),
     "reboot": lambda: handle_system_command("reboot", message_from_id, deviceID),
-    "shutdown": lambda: handle_system_command("shutdown", message_from_id, deviceID),
-    "reboot": lambda: handle_system_command("reboot", message_from_id, deviceID),
     "tide": lambda: handle_tide(message_from_id, deviceID, channel_number),
     "valert": lambda: get_volcano_usgs(),
     "verse": lambda: read_verse(),
@@ -157,17 +155,17 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     cmds = [] # list to hold the commands found in the message
     # check the message for commands words list, processed after system.messageTrap
     for key in command_handler:
+==== BASE ====
         word = message_lower.split(' ')
-        if my_settings.cmdBang:
+        if cmdBang:
+==== BASE ====
             # strip the !
             if word[0].startswith("!"):
                 word[0] = word[0][1:]
         if key in word:
-            # append all the commands found in the message to the cmds list
             cmds.append({'cmd': key, 'index': message_lower.index(key)})
         # check for commands with a question mark
         if key + "?" in word:
-            # append all the commands found in the message to the cmds list
             cmds.append({'cmd': key, 'index': message_lower.index(key)})
 
     if len(cmds) > 0:
