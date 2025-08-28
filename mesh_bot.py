@@ -123,16 +123,18 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     # check the message for commands words list, processed after system.messageTrap
     for key in command_handler:
         # Ensure case-insensitive command matching
-        word = [w.lower() for w in message_lower.split(' ')]
+        words = [w.lower() for w in message_lower.split(' ')]
         if cmdBang:
-            # strip the !
-            if word[0].startswith("!"):
-                word[0] = word[0][1:]
-        if key in word:
-            cmds.append({'cmd': key, 'index': message_lower.index(key)})
+            # strip the ! from first word
+            if words[0].startswith("!"):
+                words[0] = words[0][1:]
+        
+        # Check for exact word match
+        if key in words:
+            cmds.append({'cmd': key, 'index': message_lower.find(key)})
         # check for commands with a question mark
-        if key + "?" in word:
-            cmds.append({'cmd': key, 'index': message_lower.index(key)})
+        elif key + "?" in words:
+            cmds.append({'cmd': key, 'index': message_lower.find(key + "?")})
 
     if len(cmds) > 0:
         # sort the commands by index value
