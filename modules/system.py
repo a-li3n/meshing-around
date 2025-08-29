@@ -251,8 +251,8 @@ if file_monitor_enabled or read_news_enabled or bee_enabled or enable_runShellCm
         trap_list = trap_list + ("🐝",)
     # WiFi Control Configuration
     if enable_runShellCmd:
-        trap_list = trap_list + ("wifi", "wifion", "wifioff")
-        help_message = help_message + ", wifi controls"
+        trap_list = trap_list + ("wifi", "wifion", "wifioff", "shutdown", "reboot")
+        help_message = help_message + ", wifi controls, shutdown, reboot"
 
 # clean up the help message
 help_message = help_message.split(", ")
@@ -687,7 +687,7 @@ def messageTrap(msg):
 
     # Split Message on assumed words spaces m for m = msg.split(" ")
     # t in trap_list, built by the config and system.py not the user
-    message_list=msg.split(" ")
+    message_list = msg.split(" ")
     for m in message_list:
         for t in trap_list:
             # if word in message is in the trap list, return True
