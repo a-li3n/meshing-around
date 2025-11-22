@@ -326,18 +326,23 @@ def handle_ping(message_from_id, deviceID,  message, hop, snr, rssi, isDM, chann
                 if multiPingList[i].get('message_from_id') == message_from_id:
                     multiPingList.pop(i)
                     msg = "🛑 auto-ping"
+                    break
+            for i in range(0, len(multiPingList)):
+                if multiPingList[i].get('message_from_id') == message_from_id:
+                    multiPingList.pop(i)
+                    msg = "🛑 auto-ping"
 
         # if 3 or more entries (2 or more active), throttle the multi-ping for congestion
         if len(multiPingList) > 2:
             msg = "🚫⛔️ auto-ping, service busy. ⏳Try again soon."
             pingCount = -1
         else:
-            # set inital pingCount
+            # set initial pingCount
             try:
                 pingCount = int(message.split(" ")[1])
                 if pingCount == 123 or pingCount == 1234:
-                    pingCount =  1
-                elif not my_settings.autoPingInChannel and not isDM:
+                    pingCount = 1
+                elif not autoPingInChannel and not isDM:
                     # no autoping in channels
                     pingCount = 1
 
@@ -353,9 +358,9 @@ def handle_ping(message_from_id, deviceID,  message, hop, snr, rssi, isDM, chann
             multiPingList.append({'message_from_id': message_from_id, 'count': pingCount + 1, 'type': type, 'deviceID': deviceID, 'channel_number': channel_number, 'startCount': pingCount})
             logger.info(f"System: Starting auto-ping of type {type} for {pingCount} pings to {get_name_from_number(message_from_id, 'short', deviceID)}")
             if type == "🎙TEST":
-                msg = f"🛜Initalizing BufferTest, using chunks of about {int(maxBuffer // pingCount)}, max length {maxBuffer} in {pingCount} messages"
+                msg = f"🛜Initializing BufferTest, using chunks of about {int(maxBuffer // pingCount)}, max length {maxBuffer} in {pingCount} messages"
             else:
-                msg = f"🚦Initalizing {pingCount} auto-ping"
+                msg = f"🚦Initializing {pingCount} auto-ping"
 
     # if not a DM add the username to the beginning of msg
     if not my_settings.useDMForResponse and not isDM:
@@ -390,7 +395,9 @@ def handle_emergency(message_from_id, deviceID, message):
         if my_settings.enableSMTP:
             for user in my_settings.sysopEmails:
                 send_email(user, f"Emergency Assistance Requested by {nodeInfo} in {message}", message_from_id)
-        return my_settings.EMERGENCY_RESPONSE
+        # respond to the user
+        time.sleep(responseDelay + 2)
+        return EMERGENCY_RESPONSE
 
 def handle_motd(message, message_from_id, isDM):
     msg = my_settings.MOTD
@@ -626,8 +633,7 @@ def handle_satpass(message_from_id, deviceID, message='', vox=False):
     for bird in satList:
         satPass = getNextSatellitePass(bird, str(location[0]), str(location[1]))
         if satPass:
-            # append to passes
-            passes = passes + satPass + "\n"
+            passes += f"{satPass}\n"
     # remove the last newline
     passes = passes[:-1]
 
@@ -666,7 +672,13 @@ def handle_llm(message_from_id, channel_number, deviceID, message, publicChannel
 
         # check for a welcome message (is this redundant?)
         if not any(node['nodeID'] == message_from_id and node['welcome'] == True for node in seenNodes):
-            if (channel_number == publicChannel and my_settings.antiSpam) or my_settings.useDMForResponse:
+            msg = f"Welcome {get_name_from_number(message_from_id, 'short', deviceID)}! "
+            # update seenNodes to mark as welcomed
+            for node in seenNodes:
+                if node['nodeID'] == message_from_id:
+                    node['welcome'] = True
+                    break
+            if (channel_number == publicChannel and antiSpam) or useDMForResponse:
                 # send via DM
                 send_message(my_settings.welcome_message, 0, message_from_id, deviceID)
             else:
@@ -681,6 +693,7 @@ def handle_llm(message_from_id, channel_number, deviceID, message, publicChannel
     for i in range(0, len(llmLocationTable)):
         if llmLocationTable[i].get('nodeID') == message_from_id:
             llmLocationTable[i]['location'] = location_name
+            break
 
     # if not in table add the location
     if not any(d['nodeID'] == message_from_id for d in llmLocationTable):
@@ -784,6 +797,13 @@ def handleLemonade(message, nodeID, deviceID):
         lemonadeSugar.append({'nodeID': nodeID, 'cost': 3.00, 'count': 15, 'min': 1.50, 'unit': 0.00})
         lemonadeScore.append({'nodeID': nodeID, 'value': 0.00, 'total': 0.00})
         lemonadeWeeks.append({'nodeID': nodeID, 'current': 1, 'total': lemon_total_weeks, 'sales': 99, 'potential': 0, 'unit': 0.00, 'price': 0.00, 'total_sales': 0})
+    
+    # get player's last command from tracker if not new player
+    last_cmd = ""
+    for i in range(len(lemonadeTracker)):
+        if lemonadeTracker[i]['nodeID'] == nodeID:
+            last_cmd = lemonadeTracker[i]['cmd']
+            break
 
     # If player not found, create if message is for lemonstand
     if nodeID != 0 and "lemonstand" in message.lower():
@@ -1698,42 +1718,67 @@ def handle_whois(message, deviceID, channel_number, message_from_id):
                     msg += f"Loc: {where_am_i(str(location[0]), str(location[1]))}"
         return msg
 
-def handle_boot(mesh=True):
+def handle_wifi_command(message, message_from_id, deviceID):
+    """Handle WiFi toggle commands with error handling"""
+    if not enable_runShellCmd:
+        return "🚫WiFi control disabled in config"
+    
+    # Check if user has permission (admin check)
+    isAdmin = False
+    if bbs_admin_list != ['']:
+        for admin in bbs_admin_list:
+            if str(message_from_id) == admin:
+                isAdmin = True
+                break
+    else:
+        isAdmin = True
+    
+    if not isAdmin:
+        return "🚫Access denied - admin only"
+    
+    command = message.lower().strip()
+    script_path = "script/wifiToggle.sh"
+    
     try:
-        print (CustomFormatter.bold_white + f"\nMeshtastic Autoresponder Bot CTL+C to exit\n" + CustomFormatter.reset)
-        if mesh:
-            
-            for i in range(1, 10):
-                if globals().get(f'interface{i}_enabled', False):
-                    myNodeNum = globals().get(f'myNodeNum{i}', 0)
-                    logger.info(f"System: Autoresponder Started for Device{i} {get_name_from_number(myNodeNum, 'long', i)},"
-                                f"{get_name_from_number(myNodeNum, 'short', i)}. NodeID: {myNodeNum}, {decimal_to_hex(myNodeNum)}")
-                    
-            if llm_enabled:
-                msg = f"System: LLM Enabled"
-                llmLoad = llm_query(" ", init=True)
-                if "trouble" not in llmLoad:
-                    if my_settings.llmReplyToNonCommands:
-                        msg += " | Reply to DM's Enabled"
-                    if my_settings.llmUseWikiContext:
-                        wiki_source = "Kiwixpedia" if my_settings.use_kiwix_server else "Wikipedia"
-                        msg += f" | {wiki_source} Context Enabled"
-                    if my_settings.useOpenWebUI:
-                        msg += " | OpenWebUI API Enabled"
-                    else:
-                        msg += f" | Ollama API Model {my_settings.llmModel} loaded. Use {'RAW' if my_settings.rawLLMQuery else 'SYSTEM'} prompt mode."
-                    logger.debug(msg)
+        # Determine which WiFi command to execute
+        if command == "wifioff":
+            # Force WiFi off by running the script when WiFi is currently on
+            output = call_external_script("force_off", script_path)
+            if output and "WiFi is now DOWN" in output:
+                return "📶➡️📵WiFi turned OFF"
+            elif output and "DOWN" in output:
+                return "📵WiFi already OFF"
+            else:
+                return "⚠️Failed to turn WiFi OFF"
+                
+        elif command == "wifion":
+            # Force WiFi on by running the script when WiFi is currently off
+            output = call_external_script("force_on", script_path)
+            if output and "WiFi is now UP" in output:
+                return "📵➡️📶WiFi turned ON"
+            elif output and "UP" in output:
+                return "📶WiFi already ON"
+            else:
+                return "⚠️Failed to turn WiFi ON"
+                
+        elif command.startswith("wifi"):
+            # Toggle WiFi state
+            output = call_external_script("toggle", script_path)
+            if output:
+                if "WiFi is now UP" in output:
+                    return "📵➡️📶WiFi toggled ON"
+                elif "WiFi is now DOWN" in output:
+                    return "📶➡️📵WiFi toggled OFF"
                 else:
-                    logger.debug(f"System: Bad response from LLM: {llmLoad}")
-
-            if my_settings.bbs_enabled:
-                logger.debug(f"System: BBS Enabled, {bbsdb} has {len(bbs_messages)} messages. Direct Mail Messages waiting: {(len(bbs_dm) - 1)}")
-                if my_settings.bbs_link_enabled:
-                    if len(bbs_link_whitelist) > 0:
-                        logger.debug(f"System: BBS Link Enabled with {len(bbs_link_whitelist)} peers")
-                    else:
-                        logger.debug(f"System: BBS Link Enabled allowing all")
+                    return f"📶WiFi status: {output.strip()}"
+            else:
+                return "⚠️WiFi toggle failed"
+        else:
+            return "❓Usage: wifi, wifion, or wifioff"
             
+    except Exception as e:
+        logger.error(f"System: WiFi command error: {e}")
+        return "💥WiFi command failed - check logs"
             if my_settings.solar_conditions_enabled:
                 logger.debug("System: Celestial Telemetry Enabled")
 
@@ -1862,6 +1907,20 @@ def handle_boot(mesh=True):
     except Exception as e:
         logger.error(f"System: Error during boot: {e}")
 
+def check_and_play_game(tracker, message_from_id, message_string, rxNode, channel_number, game_name, handle_game_func):
+    """Helper function to check if a user is playing a game and handle the game response"""
+    global llm_enabled
+
+    for i in range(len(tracker)):
+        if tracker[i].get('nodeID') == message_from_id or tracker[i].get('userID') == message_from_id:
+            logger.debug(f"System: {message_from_id} is playing {game_name}")
+            # User is playing this game, handle the message
+            response = handle_game_func(message_string, message_from_id, rxNode)
+            send_message(response, channel_number, message_from_id, rxNode)
+            time.sleep(responseDelay)
+            return True, game_name
+    return False, "None"
+
 def onReceive(packet, interface):
     global seenNodes, msg_history, cmdHistory
     # Priocess the incoming packet, handles the responses to the packet with auto_response()
@@ -1972,6 +2031,9 @@ def onReceive(packet, interface):
                 break
     # BBS DM MAIL CHECKER
     if bbs_enabled and 'decoded' in packet:
+==== BASE ====
+        
+==== BASE ====
         msg = bbs_check_dm(message_from_id)
         if msg:
             logger.info(f"System: BBS DM Delivery: {msg[1]} For: {get_name_from_number(message_from_id, 'long', rxNode)}")
@@ -2000,7 +2062,8 @@ def onReceive(packet, interface):
             rx_time = packet['decoded'].get('rxTime', time.time())
 
             # check if the packet is from us
-            if message_from_id in [myNodeNum1, myNodeNum2, myNodeNum3, myNodeNum4, myNodeNum5, myNodeNum6, myNodeNum7, myNodeNum8, myNodeNum9]:
+            my_node_nums = [globals().get(f'myNodeNum{i}', 0) for i in range(1, 10)]
+            if message_from_id in my_node_nums:
                 logger.warning(f"System: Packet from self {message_from_id} loop or traffic replay detected")
 
             # get the signal strength and snr if available
@@ -2079,7 +2142,8 @@ def onReceive(packet, interface):
                 return
         
             # If the packet is a DM (Direct Message) respond to it, otherwise validate its a message for us on the channel
-            if packet['to'] in [myNodeNum1, myNodeNum2, myNodeNum3, myNodeNum4, myNodeNum5, myNodeNum6, myNodeNum7, myNodeNum8, myNodeNum9]:
+            my_node_nums = [globals().get(f'myNodeNum{i}', 0) for i in range(1, 10)]
+            if packet['to'] in my_node_nums:
                 # message is DM to us
                 isDM = True
                 # check if the message contains a trap word, DMs are always responded to
@@ -2253,7 +2317,172 @@ async def start_rx():
     # Start the receive subscriber using pubsub via meshtastic library
     pub.subscribe(onReceive, 'meshtastic.receive')
     pub.subscribe(onDisconnect, 'meshtastic.connection.lost')
-    logger.debug("System: RX Subscriber started")
+
+    for i in range(1, 10):
+        if globals().get(f'interface{i}_enabled', False):
+            myNodeNum = globals().get(f'myNodeNum{i}', 0)
+            logger.info(f"System: Autoresponder Started for Device{i} {get_name_from_number(myNodeNum, 'long', i)},"
+                        f"{get_name_from_number(myNodeNum, 'short', i)}. NodeID: {myNodeNum}, {decimal_to_hex(myNodeNum)}")
+    
+    if llm_enabled:
+        logger.debug(f"System: Ollama LLM Enabled, loading model {llmModel} please wait")
+        llmLoad = llm_query(" ")
+        if "trouble" not in llmLoad:
+            logger.debug(f"System: LLM Model {llmModel} loaded")
+
+    if log_messages_to_file:
+        logger.debug("System: Logging Messages to disk")
+    if syslog_to_file:
+        logger.debug("System: Logging System Logs to disk")
+    if bbs_enabled:
+        logger.debug(f"System: BBS Enabled, {bbsdb} has {len(bbs_messages)} messages. Direct Mail Messages waiting: {(len(bbs_dm) - 1)}")
+        if bbs_link_enabled:
+            if len(bbs_link_whitelist) > 0:
+                logger.debug(f"System: BBS Link Enabled with {len(bbs_link_whitelist)} peers")
+            else:
+                logger.debug(f"System: BBS Link Enabled allowing all")
+    if solar_conditions_enabled:
+        logger.debug("System: Celestial Telemetry Enabled")
+    if location_enabled:
+        if use_meteo_wxApi:
+            logger.debug("System: Location Telemetry Enabled using Open-Meteo API")
+        else:
+            logger.debug("System: Location Telemetry Enabled using NOAA API")
+    if dad_jokes_enabled:
+        logger.debug("System: Dad Jokes Enabled!")
+    if coastalEnabled:
+        logger.debug("System: Coastal Forcast and Tide Enabled!")
+    if games_enabled:
+        logger.debug("System: Games Enabled!")
+    if wikipedia_enabled:
+        logger.debug("System: Wikipedia search Enabled")
+    if motd_enabled:
+        logger.debug(f"System: MOTD Enabled using {MOTD}")
+    if sentry_enabled:
+        logger.debug(f"System: Sentry Mode Enabled {sentry_radius}m radius reporting to channel:{secure_channel}")
+    if highfly_enabled:
+        logger.debug(f"System: HighFly Enabled using {highfly_altitude}m limit reporting to channel:{highfly_channel}")
+    if store_forward_enabled:
+        logger.debug(f"System: Store and Forward Enabled using limit: {storeFlimit}")
+    if useDMForResponse:
+        logger.debug(f"System: Respond by DM only")
+    if repeater_enabled and multiple_interface:
+        logger.debug(f"System: Repeater Enabled for Channels: {repeater_channels}")
+    if radio_detection_enabled:
+        logger.debug(f"System: Radio Detection Enabled using rigctld at {rigControlServerAddress} brodcasting to channels: {sigWatchBroadcastCh} for {get_freq_common_name(get_hamlib('f'))}")
+    if file_monitor_enabled:
+        logger.debug(f"System: File Monitor Enabled for {file_monitor_file_path}, broadcasting to channels: {file_monitor_broadcastCh}")
+        if enable_runShellCmd:
+            logger.debug(f"System: Shell Command monitor enabled")
+        if read_news_enabled:
+            logger.debug(f"System: File Monitor News Reader Enabled for {news_file_path}")
+        if bee_enabled:
+            logger.debug(f"System: File Monitor Bee Monitor Enabled for bee.txt")
+    if wxAlertBroadcastEnabled:
+        logger.debug(f"System: Weather Alert Broadcast Enabled on channels {wxAlertBroadcastChannel}")
+    if emergencyAlertBrodcastEnabled:
+        logger.debug(f"System: Emergency Alert Broadcast Enabled on channels {emergencyAlertBroadcastCh} for FIPS codes {myStateFIPSList}")
+        # check if the FIPS codes are set
+        if myStateFIPSList == ['']:
+            logger.warning(f"System: No FIPS codes set for iPAWS Alerts")
+    if emergency_responder_enabled:
+        logger.debug(f"System: Emergency Responder Enabled on channels {emergency_responder_alert_channel} for interface {emergency_responder_alert_interface}")
+    if volcanoAlertBroadcastEnabled:
+        logger.debug(f"System: Volcano Alert Broadcast Enabled on channels {volcanoAlertBroadcastChannel}")
+    if qrz_hello_enabled and train_qrz:
+        logger.debug(f"System: QRZ Welcome/Hello Enabled with training mode")
+    if qrz_hello_enabled and not train_qrz:
+        logger.debug(f"System: QRZ Welcome/Hello Enabled")
+    if checklist_enabled:
+        logger.debug(f"System: CheckList Module Enabled")
+    if ignoreChannels != []:
+        logger.debug(f"System: Ignoring Channels: {ignoreChannels}")
+    if enableSMTP:
+        if enableImap:
+            logger.debug(f"System: SMTP Email Alerting Enabled using IMAP")
+        else:
+            logger.debug(f"System: SMTP Email Alerting Enabled")
+    if scheduler_enabled:
+        # Reminder Scheduler is enabled every Monday at noon send a log message
+        schedule.every().monday.at("12:00").do(lambda: logger.info("System: Scheduled Broadcast Enabled Reminder"))
+
+        # basic scheduler
+        if schedulerValue != '':
+            logger.debug(f"System: Starting the broadcast scheduler from config.ini")
+            if schedulerValue.lower() == 'day':
+                if schedulerTime != '':
+                    # Send a message every day at the time set in schedulerTime
+                    schedule.every().day.at(schedulerTime).do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+                else:
+                    # Send a message every day at the time set in schedulerInterval
+                    schedule.every(int(schedulerInterval)).days.do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+            elif 'mon' in schedulerValue.lower() and schedulerTime != '':
+                # Send a message every Monday at the time set in schedulerTime
+                schedule.every().monday.at(schedulerTime).do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+            elif 'tue' in schedulerValue.lower() and schedulerTime != '':
+                # Send a message every Tuesday at the time set in schedulerTime
+                schedule.every().tuesday.at(schedulerTime).do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+            elif 'wed' in schedulerValue.lower() and schedulerTime != '':
+                # Send a message every Wednesday at the time set in schedulerTime
+                schedule.every().wednesday.at(schedulerTime).do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+            elif 'thu' in schedulerValue.lower() and schedulerTime != '':
+                # Send a message every Thursday at the time set in schedulerTime
+                schedule.every().thursday.at(schedulerTime).do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+            elif 'fri' in schedulerValue.lower() and schedulerTime != '':
+                # Send a message every Friday at the time set in schedulerTime
+                schedule.every().friday.at(schedulerTime).do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+            elif 'sat' in schedulerValue.lower() and schedulerTime != '':
+                # Send a message every Saturday at the time set in schedulerTime
+                schedule.every().saturday.at(schedulerTime).do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+            elif 'sun' in schedulerValue.lower() and schedulerTime != '':
+                # Send a message every Sunday at the time set in schedulerTime
+                schedule.every().sunday.at(schedulerTime).do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+            elif 'hour' in schedulerValue.lower():
+                # Send a message every hour at the time set in schedulerTime
+                schedule.every(int(schedulerInterval)).hours.do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+            elif 'min' in schedulerValue.lower():
+                # Send a message every minute at the time set in schedulerTime
+                schedule.every(int(schedulerInterval)).minutes.do(lambda: send_message(schedulerMessage, schedulerChannel, 0, schedulerInterface))
+        else:
+            logger.debug(f"System: Starting the broadcast scheduler")
+
+        # Enhanced Examples of using the scheduler, Times here are in 24hr format
+        # https://schedule.readthedocs.io/en/stable/
+
+        # Good Morning Every day at 09:00 using send_message function to channel 2 on device 1
+        #schedule.every().day.at("09:00").do(lambda: send_message("Good Morning", 2, 0, 1))
+
+        # Send WX every Morning at 08:00 using handle_wxc function to channel 2 on device 1
+        #schedule.every().day.at("08:00").do(lambda: send_message(handle_wxc(0, 1, 'wx'), 2, 0, 1))
+        
+        # Send Weather Channel Notice Wed. Noon on channel 2, device 1
+        #schedule.every().wednesday.at("12:00").do(lambda: send_message("Weather alerts available on 'Alerts' channel with default 'AQ==' key.", 2, 0, 1))
+
+        # Send config URL for Medium Fast Network Use every other day at 10:00 to default channel 2 on device 1
+        #schedule.every(2).days.at("10:00").do(lambda: send_message("Join us on Medium Fast https://meshtastic.org/e/#CgcSAQE6AggNEg4IARAEOAFAA0gBUB5oAQ", 2, 0, 1))
+
+        # Send a Net Starting Now Message Every Wednesday at 19:00 using send_message function to channel 2 on device 1
+        #schedule.every().wednesday.at("19:00").do(lambda: send_message("Net Starting Now", 2, 0, 1))
+
+        # Send a Welcome Notice for group on the 15th and 25th of the month at 12:00 using send_message function to channel 2 on device 1
+        #schedule.every().day.at("12:00").do(lambda: send_message("Welcome to the group", 2, 0, 1)).day(15, 25)
+
+        # Send a joke every 6 hours using tell_joke function to channel 2 on device 1
+        #schedule.every(6).hours.do(lambda: send_message(tell_joke(), 2, 0, 1))
+
+        # Send a joke every 2 minutes using tell_joke function to channel 2 on device 1
+        #schedule.every(2).minutes.do(lambda: send_message(tell_joke(), 2, 0, 1))
+
+        # Send the Welcome Message every other day at 08:00 using send_message function to channel 2 on device 1
+        #schedule.every(2).days.at("08:00").do(lambda: send_message(welcome_message, 2, 0, 1))
+
+        # Send the MOTD every day at 13:00 using send_message function to channel 2 on device 1
+        #schedule.every().day.at("13:00").do(lambda: send_message(MOTD, 2, 0, 1))
+
+        # Send bbslink looking for peers every other day at 10:00 using send_message function to channel 3 on device 1
+        #schedule.every(2).days.at("10:00").do(lambda: send_message("bbslink MeshBot looking for peers", 3, 0, 1))
+        await BroadcastScheduler()
+
     # here we go loopty loo
     while True:
         await asyncio.sleep(0.5)
