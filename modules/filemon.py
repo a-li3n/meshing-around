@@ -86,46 +86,6 @@ def read_verse():
         return random.choice(verses)
     return None
 
-def get_verses(file_monitor_file_path):
-    # Handles both "4 ..." and "1 Timothy 4:15 ..." style verse starts
-    verses = []
-    current_verse = []
-    with open(file_monitor_file_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            stripped = line.strip()
-            # Check for "number space" OR "Book Chapter:Verse" at start
-            is_numbered = stripped and len(stripped) > 1 and stripped[0].isdigit() and stripped[1] == ' '
-            is_reference = (
-                stripped and
-                ':' in stripped and
-                any(stripped.startswith(book + ' ') for book in [
-                    "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua", "Judges", "Ruth",
-                    "1 Samuel", "2 Samuel", "1 Kings", "2 Kings", "1 Chronicles", "2 Chronicles", "Ezra", "Nehemiah",
-                    "Esther", "Job", "Psalms", "Proverbs", "Ecclesiastes", "Song of Solomon", "Isaiah", "Jeremiah",
-                    "Lamentations", "Ezekiel", "Daniel", "Hosea", "Joel", "Amos", "Obadiah", "Jonah", "Micah",
-                    "Nahum", "Habakkuk", "Zephaniah", "Haggai", "Zechariah", "Malachi", "Matthew", "Mark", "Luke",
-                    "John", "Acts", "Romans", "1 Corinthians", "2 Corinthians", "Galatians", "Ephesians", "Philippians",
-                    "Colossians", "1 Thessalonians", "2 Thessalonians", "1 Timothy", "2 Timothy", "Titus", "Philemon",
-                    "Hebrews", "James", "1 Peter", "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation"
-                ])
-            )
-            if is_numbered or is_reference:
-                if current_verse:
-                    verses.append(' '.join(current_verse).strip())
-                    current_verse = []
-                # For numbered, drop the number; for reference, keep the whole line
-                if is_numbered:
-                    current_verse.append(stripped.split(' ', 1)[1])
-                else:
-                    current_verse.append(stripped)
-            elif stripped and not stripped.lower().startswith('psalm'):
-                current_verse.append(stripped)
-            elif not stripped and current_verse:
-                verses.append(' '.join(current_verse).strip())
-                current_verse = []
-        if current_verse:
-            verses.append(' '.join(current_verse).strip())
-    return verses
 
 def write_news(content, append=False):
     # write the news file on demand
@@ -171,19 +131,34 @@ def call_external_script(message, script="runShell.sh"):
             if not os.path.exists(script_path):
                 logger.warning(f"FileMon: Script not found: {script_path}")
                 return "sorry I can't do that"
-
-        result = subprocess.run(
-            ["bash", script_path, message],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode != 0:
-            logger.error(f"FileMon: Script error: {result.stderr.strip()}")
-            return None
-
-        output = result.stdout.strip()
-        return output if output else None
+        
+        # Special handling for WiFi toggle script
+        if script == "wifiToggle.sh":
+            # Make the script executable if it exists
+            if os.path.exists(script_path):
+                os.chmod(script_path, 0o755)
+            
+            # Handle different WiFi commands
+            if message == "force_off":
+                # Modify the script behavior to force WiFi off
+                output = os.popen(f"bash {script_path}").read().encode('utf-8').decode('utf-8')
+                # Check if WiFi is currently UP, if so, run script to toggle it down
+                if "Current WiFi state: UP" in output:
+                    output = os.popen(f"bash {script_path}").read().encode('utf-8').decode('utf-8')
+            elif message == "force_on":
+                # Modify the script behavior to force WiFi on
+                output = os.popen(f"bash {script_path}").read().encode('utf-8').decode('utf-8')
+                # Check if WiFi is currently DOWN, if so, run script to toggle it up
+                if "Current WiFi state: DOWN" in output:
+                    output = os.popen(f"bash {script_path}").read().encode('utf-8').decode('utf-8')
+            else:
+                # Regular toggle
+                output = os.popen(f"bash {script_path}").read().encode('utf-8').decode('utf-8')
+        else:
+            # Original behavior for other scripts
+            output = os.popen(f"bash {script_path} {message}").read().encode('utf-8').decode('utf-8')
+        
+        return output.strip()
     except Exception as e:
         logger.warning(f"FileMon: Error calling external script: {e}")
         return None

@@ -265,13 +265,13 @@ if games_enabled is True:
         gamesCmdList += "hangman, "
     if hamtest_enabled:
         gamesCmdList += "hamTest, "
-    if tictactoe_enabled:
-        gamesCmdList += "ticTacToe, "
-    if battleship_enabled:
-        gamesCmdList += "battleship, "
     gamesCmdList = gamesCmdList[:-2] # remove the last comma
 else:
     gamesCmdList = ""
+
+# Scheduled Broadcast Configuration
+if scheduler_enabled:
+    import schedule # pip install schedule
 
 # Sentry Configuration
 if sentry_enabled:
@@ -310,12 +310,10 @@ if file_monitor_enabled or read_news_enabled or bee_enabled or enable_runShellCm
     # Bee Configuration uses file monitor module
     if bee_enabled:
         trap_list = trap_list + ("🐝",)
-    if bible_enabled:
-        trap_list = trap_list + ("verse",)
-        help_message = help_message + ", verse"
-    # x: command for shell access
-    if enable_runShellCmd and allowXcmd:
-        trap_list = trap_list + ("x:",)
+    # WiFi Control Configuration
+    if enable_runShellCmd:
+        trap_list = trap_list + ("wifi", "wifion", "wifioff")
+        help_message = help_message + ", wifi controls"
 
 # clean up the help message
 help_message = help_message.split(", ")
@@ -347,20 +345,7 @@ for i in range(1, 10):
             if interface_type == 'serial':
                 globals()[f'interface{i}'] = meshtastic.serial_interface.SerialInterface(globals().get(f'port{i}'))
             elif interface_type == 'tcp':
-                host = globals().get(f'hostname{i}', '127.0.0.1')
-                port = 4403
-
-                # Allow host:port format
-                if isinstance(host, str) and ':' in host:
-                    maybe_host, maybe_port = host.rsplit(':', 1)
-                    if maybe_port.isdigit():
-                        host = maybe_host
-                        try:
-                            port = int(maybe_port)
-                        except ValueError:
-                            port = 4403
-
-                globals()[f'interface{i}'] = meshtastic.tcp_interface.TCPInterface(hostname=host, portNumber=port)
+                globals()[f'interface{i}'] = meshtastic.tcp_interface.TCPInterface(globals().get(f'hostname{i}'))
             elif interface_type == 'ble':
                 globals()[f'interface{i}'] = meshtastic.ble_interface.BLEInterface(globals().get(f'mac{i}'))
             else:

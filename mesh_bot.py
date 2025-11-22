@@ -10,13 +10,15 @@ except ImportError:
 import asyncio
 import time # for sleep, get some when you can :)
 import random
+import subprocess
+import os
 from datetime import datetime
-from modules.log import logger, CustomFormatter, msgLogger, getPrettyTime
+from modules.log import *
 import modules.settings as my_settings
 from modules.system import *
 
 # list of commands to remove from the default list for DM only
-restrictedCommands = ["blackjack", "videopoker", "dopewars", "lemonstand", "golfsim", "mastermind", "hangman", "hamtest", "tictactoe", "tic-tac-toe", "quiz", "q:", "survey", "s:", "battleship"]
+restrictedCommands = ["blackjack", "videopoker", "dopewars", "lemonstand", "golfsim", "mastermind", "hangman", "hamtest", "wifi", "wifioff", "wifion"]
 restrictedResponse = "🤖only available in a Direct Message📵" # "" for none
 
 def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_number, deviceID, isDM):
@@ -116,8 +118,9 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     "sysinfo": lambda: sysinfo(message, message_from_id, deviceID, isDM),
     "test": lambda: handle_ping(message_from_id, deviceID, message, hop, snr, rssi, isDM, channel_number),
     "testing": lambda: handle_ping(message_from_id, deviceID, message, hop, snr, rssi, isDM, channel_number),
-    "tictactoe": lambda: handleTicTacToe(message, message_from_id, deviceID),
-    "tic-tac-toe": lambda: handleTicTacToe(message, message_from_id, deviceID),
+    "wifi": lambda: handle_wifi_command(message, message_from_id, deviceID),
+    "wifioff": lambda: handle_wifi_command("wifioff", message_from_id, deviceID),
+    "wifion": lambda: handle_wifi_command("wifion", message_from_id, deviceID),
     "tide": lambda: handle_tide(message_from_id, deviceID, channel_number),
     "valert": lambda: get_volcano_usgs(),
     "verse": lambda: read_verse(),
@@ -394,6 +397,9 @@ def handle_motd(message, message_from_id, isDM):
     isAdmin = isNodeAdmin(message_from_id)
     if  "?" in message:
         msg = "Message of the day, set with 'motd $ HelloWorld!'"
+    elif  "?" in message and isDM and not isAdmin:
+        # non-admin help via DM
+        msg = "Message of the day"
     elif "$" in message and isAdmin:
         my_settings.MOTD = message.split("$")[1]
         my_settings.MOTD = my_settings.MOTD.rstrip()
@@ -955,6 +961,8 @@ def handleMmind(message, nodeID, deviceID):
         return msg
 
     msg += start_mMind(nodeID=nodeID, message=message)
+    # wait a second to keep from message collision
+    time.sleep(responseDelay + 1)
     return msg
 
 def handleGolf(message, nodeID, deviceID):
