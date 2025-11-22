@@ -12,7 +12,10 @@ import time # for sleep, get some when you can :)
 import random
 import subprocess
 import os
+<<<<<<< HEAD
 from datetime import datetime
+=======
+>>>>>>> 4be78431610f4945a454a273048d8da0612b9821
 from modules.log import *
 import modules.settings as my_settings
 from modules.system import *
@@ -156,6 +159,7 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     # check the message for commands words list, processed after system.messageTrap
     for key in command_handler:
         # Ensure case-insensitive command matching
+<<<<<<< HEAD
         word = [w.lower() for w in message_lower.split(' ')]
         if cmdBang:
             # strip the !
@@ -163,6 +167,17 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
                 word[0] = word[0][1:]
         if key in word:
             cmds.append({'cmd': key, 'index': message_lower.index(key)})
+=======
+        words = [w.lower() for w in message_lower.split(' ')]
+        if cmdBang:
+            # strip the ! from first word
+            if words[0].startswith("!"):
+                words[0] = words[0][1:]
+        
+        # Check for exact word match
+        if key in words:
+            cmds.append({'cmd': key, 'index': message_lower.find(key)})
+>>>>>>> 4be78431610f4945a454a273048d8da0612b9821
         # check for commands with a question mark
         elif key + "?" in words:
             cmds.append({'cmd': key, 'index': message_lower.find(key + "?")})
@@ -332,6 +347,10 @@ def handle_ping(message_from_id, deviceID,  message, hop, snr, rssi, isDM, chann
                 if multiPingList[i].get('message_from_id') == message_from_id:
                     multiPingList.pop(i)
                     msg = "🛑 auto-ping"
+<<<<<<< HEAD
+=======
+
+>>>>>>> 4be78431610f4945a454a273048d8da0612b9821
 
         # if 3 or more entries (2 or more active), throttle the multi-ping for congestion
         if len(multiPingList) > 2:
@@ -385,17 +404,28 @@ def handle_emergency(message_from_id, deviceID, message):
     if message_from_id != 0:
         nodeLocation = get_node_location(message_from_id, deviceID)
         # if default location is returned set to Unknown
+<<<<<<< HEAD
         if nodeLocation[0] == my_settings.latitudeValue and nodeLocation[1] == my_settings.longitudeValue:
             nodeLocation = ["?", "?"]
+=======
+        if nodeLocation[0] == latitudeValue and nodeLocation[1] == longitudeValue:
+            nodeLocation = ["Unknown", "Unknown"]
+>>>>>>> 4be78431610f4945a454a273048d8da0612b9821
         nodeInfo = f"{get_name_from_number(message_from_id, 'short', deviceID)} detected by {get_name_from_number(myNodeNum, 'short', deviceID)} lastGPS {nodeLocation[0]}, {nodeLocation[1]}"
         msg = f"🔔🚨Intercepted Possible Emergency Assistance needed for: {nodeInfo}"
         # alert the emergency_responder_alert_channel
         send_message(msg, my_settings.emergency_responder_alert_channel, 0, my_settings.emergency_responder_alert_interface)
         logger.warning(f"System: {message_from_id} Emergency Assistance Requested in {message}")
         # send the message out via email/sms
+<<<<<<< HEAD
         if my_settings.enableSMTP:
             for user in my_settings.sysopEmails:
                 send_email(user, f"Emergency Assistance Requested by {nodeInfo} in {message}", message_from_id)
+=======
+        if enableSMTP:
+            for email in sysopEmails:
+                send_email(email, f"Emergency Alert: {nodeInfo}", msg)
+>>>>>>> 4be78431610f4945a454a273048d8da0612b9821
         # respond to the user
         time.sleep(responseDelay + 2)
         return EMERGENCY_RESPONSE
@@ -744,6 +774,7 @@ def handle_llm(message_from_id, channel_number, deviceID, message, publicChannel
     return response
 
 def handleDopeWars(message, nodeID, rxNode):
+<<<<<<< HEAD
     global dwPlayerTracker
     global dwHighScore
 
@@ -759,6 +790,19 @@ def handleDopeWars(message, nodeID, rxNode):
             # ... add other fields as needed ...
         }
         dwPlayerTracker.append(player)
+=======
+    global dwPlayerTracker, dwHighScore
+    
+    # get player's last command
+    last_cmd = None
+    for i in range(0, len(dwPlayerTracker)):
+        if dwPlayerTracker[i].get('userID') == nodeID:
+            last_cmd = dwPlayerTracker[i].get('cmd')
+            break
+    
+    # welcome new player
+    if not last_cmd and nodeID != 0:
+>>>>>>> 4be78431610f4945a454a273048d8da0612b9821
         msg = 'Welcome to 💊Dope Wars💉 You have ' + str(total_days) + ' days to make as much 💰 as possible! '
         high_score = getHighScoreDw()
         msg += 'The High Score is $' + "{:,}".format(high_score.get('cash')) + ' by user ' + get_name_from_number(high_score.get('userID'), 'short', rxNode) + '\n'
@@ -1846,6 +1890,7 @@ def handle_system_command(command, message_from_id, deviceID):
     except Exception as e:
         logger.error(f"System: System command error: {e}")
         return "💥System command failed - check logs"
+<<<<<<< HEAD
 
 def handle_boot():
     """Handle boot sequence and log system configuration"""
@@ -1924,6 +1969,46 @@ def check_and_play_game(tracker, message_from_id, message_string, rxNode, channe
             return True, game_name
     return False, "None"
 
+=======
+
+def checkPlayingGame(message_from_id, message_string, rxNode, channel_number):
+    playingGame = False
+    game = "None"
+
+    trackers = [
+        (dwPlayerTracker, "DopeWars", handleDopeWars) if 'dwPlayerTracker' in globals() else None,
+        (lemonadeTracker, "LemonadeStand", handleLemonade) if 'lemonadeTracker' in globals() else None,
+        (vpTracker, "VideoPoker", handleVideoPoker) if 'vpTracker' in globals() else None,
+        (jackTracker, "BlackJack", handleBlackJack) if 'jackTracker' in globals() else None,
+        (mindTracker, "MasterMind", handleMmind) if 'mindTracker' in globals() else None,
+        (golfTracker, "GolfSim", handleGolf) if 'golfTracker' in globals() else None,
+        (hangmanTracker, "Hangman", handleHangman) if 'hangmanTracker' in globals() else None,
+        (hamtestTracker, "HamTest", handleHamtest) if 'hamtestTracker' in globals() else None,
+    ]
+    trackers = [tracker for tracker in trackers if tracker is not None]
+
+    for tracker, game_name, handle_game_func in trackers:
+        playingGame, game = check_and_play_game(tracker, message_from_id, message_string, rxNode, channel_number, game_name, handle_game_func)
+        if playingGame:
+            break
+
+    return playingGame
+
+def check_and_play_game(tracker, message_from_id, message_string, rxNode, channel_number, game_name, handle_game_func):
+    """Helper function to check if a user is playing a game and handle the game response"""
+    global llm_enabled
+
+    for i in range(len(tracker)):
+        if tracker[i].get('nodeID') == message_from_id or tracker[i].get('userID') == message_from_id:
+            logger.debug(f"System: {message_from_id} is playing {game_name}")
+            # User is playing this game, handle the message
+            response = handle_game_func(message_string, message_from_id, rxNode)
+            send_message(response, channel_number, message_from_id, rxNode)
+            time.sleep(responseDelay)
+            return True, game_name
+    return False, "None"
+
+>>>>>>> 4be78431610f4945a454a273048d8da0612b9821
 def onReceive(packet, interface):
     global seenNodes, msg_history, cmdHistory
     # Priocess the incoming packet, handles the responses to the packet with auto_response()
@@ -2034,6 +2119,10 @@ def onReceive(packet, interface):
                 break
     # BBS DM MAIL CHECKER
     if bbs_enabled and 'decoded' in packet:
+<<<<<<< HEAD
+=======
+        # Check for pending mail for this node
+>>>>>>> 4be78431610f4945a454a273048d8da0612b9821
         msg = bbs_check_dm(message_from_id)
         if msg:
             logger.info(f"System: BBS DM Delivery: {msg[1]} For: {get_name_from_number(message_from_id, 'long', rxNode)}")

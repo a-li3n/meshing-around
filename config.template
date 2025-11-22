@@ -393,6 +393,7 @@ enable_read_news = False
 news_file_path = ../data/news.txt
 # only return a single random (head)line from the news file
 news_random_line = False
+<<<<<<< HEAD
 # only return random news 'block' (seprated by two newlines) randomly (precidence over news_random_line)
 news_block_mode = True
 
@@ -405,6 +406,11 @@ allowXcmd = False
 twoFactor_enabled = True
 # time in seconds to wait for the correct 2FA answer
 twoFactor_timeout = 100
+=======
+# enable the use of exernal shell commands
+# enable the use of external shell commands
+enable_runShellCmd = False = False
+>>>>>>> 4be78431610f4945a454a273048d8da0612b9821
 
 [smtp]
 # enable or disable the SMTP module

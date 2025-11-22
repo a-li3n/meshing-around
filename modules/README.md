@@ -108,4 +108,8 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     #...
     "switchON": lambda: call_external_script(message)
 ```
+<<<<<<< HEAD
 This would call the default script located in script/runShell.sh and return its output
+=======
+This would call the default script located in script/runShell.sh and return its output
+>>>>>>> 4be78431610f4945a454a273048d8da0612b9821
