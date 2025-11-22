@@ -1847,15 +1847,14 @@ def handle_system_command(command, message_from_id, deviceID):
         logger.error(f"System: System command error: {e}")
         return "💥System command failed - check logs"
 
-def checkPlayingGame(message_from_id, message_string, rxNode, channel_number):
-    playingGame = False
-    game = "None"
-
-            if my_settings.enableSMTP:
-                if my_settings.enableImap:
-                    logger.debug("System: SMTP Email Alerting Enabled using IMAP")
-                else:
-                    logger.warning("System: SMTP Email Alerting Enabled")
+def handle_boot():
+    """Handle boot sequence and log system configuration"""
+    try:
+        if my_settings.enableSMTP:
+            if my_settings.enableImap:
+                logger.debug("System: SMTP Email Alerting Enabled using IMAP")
+            else:
+                logger.warning("System: SMTP Email Alerting Enabled")
 
         # Default Options
         if my_settings.useDMForResponse:
@@ -2148,7 +2147,8 @@ def onReceive(packet, interface):
                 # message is DM to us
                 isDM = True
                 # check if the message contains a trap word, DMs are always responded to
-                if (messageTrap(message_string) and not llm_enabled) or messageTrap(message_string.split()[0]):
+                split_message = message_string.split()
+                if (messageTrap(message_string) and not llm_enabled) or (split_message and messageTrap(split_message[0])):
                     # log the message to stdout
                     logger.info(f"Device:{rxNode} Channel: {channel_number} " + CustomFormatter.green + f"Received DM: " + CustomFormatter.white + f"{message_string} " + CustomFormatter.purple +\
                                 "From: " + CustomFormatter.white + f"{get_name_from_number(message_from_id, 'long', rxNode)}")

@@ -950,7 +950,15 @@ def messageTrap(msg):
 
     # Split Message on assumed words spaces m for m = msg.split(" ")
     # t in trap_list, built by the config and system.py not the user
-    message_list=msg.split(" ")
+    message_list = msg.split(" ")
+    
+    if cmdBang:
+        # check for ! at the start of the message to force a command
+        if len(message_list) == 0 or not message_list[0].startswith('!'):
+            return False
+        else:
+            message_list[0] = message_list[0][1:]
+
     for m in message_list:
         for t in trap_list:
             if not explicitCmd:
