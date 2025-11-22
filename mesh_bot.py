@@ -65,7 +65,7 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     "globalthermonuclearwar": lambda: handle_gTnW(),
     "golfsim": lambda: handleGolf(message, message_from_id, deviceID),
     "hamtest": lambda: handleHamtest(message, message_from_id, deviceID),
-    "hangman": lambda: handleHangman(message, message_from_id, deviceID),
+    "hangman": lambda: handleHangMan(message, message_from_id, deviceID),
     "hfcond": hf_band_conditions,
     "history": lambda: handle_history(message, message_from_id, deviceID, isDM),
     "howfar": lambda: handle_howfar(message, message_from_id, deviceID, isDM),
@@ -155,18 +155,17 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     cmds = [] # list to hold the commands found in the message
     # check the message for commands words list, processed after system.messageTrap
     for key in command_handler:
-==== BASE ====
-        word = message_lower.split(' ')
+        # Ensure case-insensitive command matching
+        word = [w.lower() for w in message_lower.split(' ')]
         if cmdBang:
-==== BASE ====
             # strip the !
             if word[0].startswith("!"):
                 word[0] = word[0][1:]
         if key in word:
             cmds.append({'cmd': key, 'index': message_lower.index(key)})
         # check for commands with a question mark
-        if key + "?" in word:
-            cmds.append({'cmd': key, 'index': message_lower.index(key)})
+        elif key + "?" in words:
+            cmds.append({'cmd': key, 'index': message_lower.find(key + "?")})
 
     if len(cmds) > 0:
         # sort the commands by index value
@@ -1453,6 +1452,7 @@ def handle_bbspost(message, message_from_id, deviceID):
                 toNode = int(toNode.strip("!"),16)
             except ValueError as e:
                 toNode = 0
+
         elif toNode.isalpha() or not toNode.isnumeric() or len(toNode) < 5:
             # try short name
             toNode = get_num_from_short_name(toNode, deviceID)
@@ -1792,8 +1792,6 @@ def handle_wifi_command(message, message_from_id, deviceID):
     except Exception as e:
         logger.error(f"System: WiFi command error: {e}")
         return "💥WiFi command failed - check logs"
-            if my_settings.solar_conditions_enabled:
-                logger.debug("System: Celestial Telemetry Enabled")
 
 def handle_system_command(command, message_from_id, deviceID):
     """Handle system shutdown and reboot commands with error handling"""
@@ -2037,9 +2035,6 @@ def onReceive(packet, interface):
                 break
     # BBS DM MAIL CHECKER
     if bbs_enabled and 'decoded' in packet:
-==== BASE ====
-        
-==== BASE ====
         msg = bbs_check_dm(message_from_id)
         if msg:
             logger.info(f"System: BBS DM Delivery: {msg[1]} For: {get_name_from_number(message_from_id, 'long', rxNode)}")
@@ -2266,7 +2261,7 @@ def onReceive(packet, interface):
                         if len(message_string) > (3 * my_settings.MESSAGE_CHUNK_SIZE):
                             logger.warning(f"System: Not repeating message, exceeds size limit ({len(message_string)} > {3 * MESSAGE_CHUNK_SIZE})")
                         else:
-                            rMsg = (f"{message_string} From:{get_name_from_number(message_from_id, 'short', rxNode)}")
+                            rMsg = (f"{message_string} From:{get_name_from_short(message_from_id, 'short', rxNode)}")
                             # if channel found in the repeater list repeat the message
                             if str(channel_number) in my_settings.repeater_channels:
                                 for i in range(1, 10):
