@@ -43,6 +43,8 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
         "wifi": lambda: handle_wifi_command(message, message_from_id, deviceID) if enable_runShellCmd else "WiFi control disabled",
         "wifioff": lambda: handle_wifi_command("wifioff", message_from_id, deviceID) if enable_runShellCmd else "WiFi control disabled",
         "wifion": lambda: handle_wifi_command("wifion", message_from_id, deviceID) if enable_runShellCmd else "WiFi control disabled",
+        "shutdown": lambda: handle_system_command("shutdown", message_from_id, deviceID) if enable_runShellCmd else "System commands disabled",
+        "reboot": lambda: handle_system_command("reboot", message_from_id, deviceID) if enable_runShellCmd else "System commands disabled",
     }
     cmds = [] # list to hold the commands found in the message
     for key in command_handler:
@@ -252,15 +254,30 @@ def onReceive(packet, interface):
         # Debug print the packet for debugging
         logger.debug(f"Packet Received\n {packet} \n END of packet \n")
 
-    # determine the rxNode based on the interface type
+    # set the value for the incomming interface
+    if rxType == 'SerialInterface':
+        rxInterface = interface.__dict__.get('devPath', 'unknown')
+        if port1 in rxInterface: rxNode = 1
+        elif multiple_interface and port2 in rxInterface: rxNode = 2
+        elif multiple_interface and port3 in rxInterface: rxNode = 3
+        elif multiple_interface and port4 in rxInterface: rxNode = 4
+        elif multiple_interface and port5 in rxInterface: rxNode = 5
+        elif multiple_interface and port6 in rxInterface: rxNode = 6
+        elif multiple_interface and port7 in rxInterface: rxNode = 7
+        elif multiple_interface and port8 in rxInterface: rxNode = 8
+        elif multiple_interface and port9 in rxInterface: rxNode = 9
+    
     if rxType == 'TCPInterface':
         rxHost = interface.__dict__.get('hostname', 'unknown')
-        rxNodeHostName = interface.__dict__.get('ip', None)
-        rxNode = next(
-            (i for i in range(1, 10)
-             if multiple_interface and rxHost and
-             globals().get(f'hostname{i}', '').split(':', 1)[0] in rxHost and
-             globals().get(f'interface{i}_type', '') == 'tcp'),None)
+        if rxHost and hostname1 in rxHost and interface1_type == 'tcp': rxNode = 1
+        elif multiple_interface and rxHost and hostname2 in rxHost and interface2_type == 'tcp': rxNode = 2
+        elif multiple_interface and rxHost and hostname3 in rxHost and interface3_type == 'tcp': rxNode = 3
+        elif multiple_interface and rxHost and hostname4 in rxHost and interface4_type == 'tcp': rxNode = 4
+        elif multiple_interface and rxHost and hostname5 in rxHost and interface5_type == 'tcp': rxNode = 5
+        elif multiple_interface and rxHost and hostname6 in rxHost and interface6_type == 'tcp': rxNode = 6
+        elif multiple_interface and rxHost and hostname7 in rxHost and interface7_type == 'tcp': rxNode = 7
+        elif multiple_interface and rxHost and hostname8 in rxHost and interface8_type == 'tcp': rxNode = 8
+        elif multiple_interface and rxHost and hostname9 in rxHost and interface9_type == 'tcp': rxNode = 9
 
     if rxType == 'SerialInterface':
         rxInterface = interface.__dict__.get('devPath', 'unknown')
@@ -269,17 +286,17 @@ def onReceive(packet, interface):
              if globals().get(f'port{i}', '') in rxInterface),None)
     
     if rxType == 'BLEInterface':
-        rxNode = next(
-            (i for i in range(1, 10)
-             if globals().get(f'interface{i}_type', '') == 'ble'),0)
-        
-    if rxNode is None:
-        # default to interface 1 ## FIXME needs better like a default interface setting or hash lookup
-        if 'decoded' in packet and packet['decoded']['portnum'] in ['ADMIN_APP', 'SIMULATOR_APP']:
-            session_passkey = packet.get('decoded', {}).get('admin', {}).get('sessionPasskey', None)
-        rxNode = 1
+        if interface1_type == 'ble': rxNode = 1
+        elif multiple_interface and interface2_type == 'ble': rxNode = 2
+        elif multiple_interface and interface3_type == 'ble': rxNode = 3
+        elif multiple_interface and interface4_type == 'ble': rxNode = 4
+        elif multiple_interface and interface5_type == 'ble': rxNode = 5
+        elif multiple_interface and interface6_type == 'ble': rxNode = 6
+        elif multiple_interface and interface7_type == 'ble': rxNode = 7
+        elif multiple_interface and interface8_type == 'ble': rxNode = 8
+        elif multiple_interface and interface9_type == 'ble': rxNode = 9
     
-    # check if the packet has a channel flag use it ## FIXME needs to be channel hash lookup
+    # check if the packet has a channel flag use it
     if packet.get('channel'):
         channel_number = packet.get('channel')
         channel_name = "unknown"
@@ -385,7 +402,16 @@ def onReceive(packet, interface):
             elif hop_limit > 0 and hop_start < hop_limit:
                 hop_count = hop_away + (hop_limit - hop_start)
             else:
-                hop_count = hop_away
+                # if the packet does not have a hop count try other methods
+                if packet.get('hopLimit'):
+                    hop_limit = packet.get('hopLimit', 0)
+                else:
+                    hop_limit = 0
+                
+                if packet.get('hopStart'):
+                    hop_start = packet.get('hopStart', 0)
+                else:
+                    hop_start = 0
 
             if hop_count > 0:
                 # set hop string from calculated hop count
@@ -569,6 +595,60 @@ def handle_wifi_command(message, message_from_id, deviceID):
         logger.error(f"System: WiFi command error: {e}")
         return "💥WiFi command failed - check logs"
 
+def handle_system_command(command, message_from_id, deviceID):
+    """Handle system shutdown and reboot commands with error handling"""
+    if not enable_runShellCmd:
+        return "🚫System commands disabled in config"
+    
+    # Check if user has permission (admin check)
+    isAdmin = False
+    if bbs_admin_list != ['']:
+        for admin in bbs_admin_list:
+            if str(message_from_id) == admin:
+                isAdmin = True
+                break
+    else:
+        isAdmin = True
+    
+    if not isAdmin:
+        return "🚫Access denied - admin only"
+    
+    try:
+        if command == "shutdown":
+            logger.warning(f"System: SHUTDOWN command initiated by {get_name_from_number(message_from_id, 'long', deviceID)}")
+            # Send immediate response before shutdown
+            response = "🔴System shutting down in 5 seconds..."
+            # Delay shutdown to allow message to be sent
+            import threading
+            def delayed_shutdown():
+                import time
+                time.sleep(5)
+                os.system("sudo halt")
+            
+            threading.Thread(target=delayed_shutdown, daemon=True).start()
+            return response
+            
+        elif command == "reboot":
+            logger.warning(f"System: REBOOT command initiated by {get_name_from_number(message_from_id, 'long', deviceID)}")
+            # Send immediate response before reboot
+            response = "🔄System rebooting in 5 seconds..."
+            # Delay reboot to allow message to be sent
+            import threading
+            def delayed_reboot():
+                import time
+                time.sleep(5)
+                os.system("sudo reboot")
+            
+            threading.Thread(target=delayed_reboot, daemon=True).start()
+            return response
+            
+        else:
+            return "❓Usage: shutdown or reboot"
+            
+    except Exception as e:
+        logger.error(f"System: System command error: {e}")
+        return "💥System command failed - check logs"
+
 def handle_history(message, nodeid, deviceID, isDM, lheard=False):
     global cmdHistory, lheardCmdIgnoreNode, bbs_admin_list
     msg = ""
@@ -588,7 +668,41 @@ async def start_rx():
     # Start the receive subscriber using pubsub via meshtastic library
     pub.subscribe(onReceive, 'meshtastic.receive')
     pub.subscribe(onDisconnect, 'meshtastic.connection.lost')
-    logger.debug("System: RX Subscriber started")
+    for i in range(1, 10):
+        if globals().get(f'interface{i}_enabled', False):
+            myNodeNum = globals().get(f'myNodeNum{i}', 0)
+            logger.info(f"System: Autoresponder Started for Device{i} {get_name_from_number(myNodeNum, 'long', i)},"
+                        f"{get_name_from_number(myNodeNum, 'short', i)}. NodeID: {myNodeNum}, {decimal_to_hex(myNodeNum)}")
+    
+    if log_messages_to_file:
+        logger.debug("System: Logging Messages to disk")
+    if syslog_to_file:
+        logger.debug("System: Logging System Logs to disk")
+    if solar_conditions_enabled:
+        logger.debug("System: Celestial Telemetry Enabled")
+    if motd_enabled:
+        logger.debug(f"System: MOTD Enabled using {MOTD}")
+    if sentry_enabled:
+        logger.debug(f"System: Sentry Mode Enabled {sentry_radius}m radius reporting to channel:{secure_channel}")
+    if store_forward_enabled:
+        logger.debug(f"System: Store and Forward Enabled using limit: {storeFlimit}")
+    if useDMForResponse:
+        logger.debug(f"System: Respond by DM only")
+    if repeater_enabled and multiple_interface:
+        logger.debug(f"System: Repeater Enabled for Channels: {repeater_channels}")
+    if file_monitor_enabled:
+        logger.debug(f"System: File Monitor Enabled for {file_monitor_file_path}, broadcasting to channels: {file_monitor_broadcastCh}")
+    if read_news_enabled:
+        logger.debug(f"System: File Monitor News Reader Enabled for {news_file_path}")
+    if scheduler_enabled:
+        # Examples of using the scheduler, Times here are in 24hr format
+        # https://schedule.readthedocs.io/en/stable/
+        
+        # Reminder Scheduler is enabled every Monday at noon send a log message
+        schedule.every().monday.at("12:00").do(lambda: logger.info("System: Scheduled Broadcast Reminder"))
+        logger.debug("System: Starting the broadcast scheduler")
+        await BroadcastScheduler()
+
     # here we go loopty loo
     while True:
         await asyncio.sleep(0.5)

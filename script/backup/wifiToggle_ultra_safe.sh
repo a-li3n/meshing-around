@@ -1,20 +1,20 @@
 #!/bin/bash
-# Safe WiFi Toggle Script - Avoids full networking restart
-# Usage: ./wifiToggle_safe.sh [on|off|toggle|force_on|force_off]
+# Ultra-Safe WiFi Toggle Script - Minimal network disruption
+# Usage: ./wifiToggle_ultra_safe.sh [on|off|toggle|force_on|force_off]
 
 INTERFACE="wlan0"
 USB_DEVICE="/sys/bus/usb/devices/1-1.3/power/control"
 
 # Function to get current WiFi state
 get_wifi_state() {
-    if ip link show $INTERFACE | grep -q "UP"; then
+    if ip link show $INTERFACE 2>/dev/null | grep -q "UP"; then
         echo "UP"
     else
         echo "DOWN"
     fi
 }
 
-# Function to enable WiFi without full networking restart
+# Function to enable WiFi with minimal network disruption
 wifi_on() {
     echo "Enabling WiFi interface $INTERFACE..."
     
@@ -28,48 +28,51 @@ wifi_on() {
     sudo ip link set dev $INTERFACE up
     sleep 2
     
-    # Check if wpa_supplicant is already running for this interface
+    # Only start wpa_supplicant if not already running
     if ! pgrep -f "wpa_supplicant.*$INTERFACE" > /dev/null; then
+        echo "Starting wpa_supplicant..."
         sudo wpa_supplicant -B -i $INTERFACE -c /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null
-        sleep 3
+        sleep 4
+        
+        # Only request DHCP if we don't have an IP
+        local current_ip=$(ip addr show $INTERFACE 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1)
+        if [ -z "$current_ip" ]; then
+            echo "Requesting DHCP lease..."
+            # Use timeout to prevent hanging
+            timeout 10 sudo dhclient $INTERFACE 2>/dev/null || echo "DHCP request timed out"
+            sleep 2
+        else
+            echo "Interface already has IP: $current_ip"
+        fi
     else
-        echo "wpa_supplicant already running for $INTERFACE"
-        sleep 1
+        echo "wpa_supplicant already running, WiFi should connect automatically"
+        sleep 2
     fi
     
-    # Check if we already have an IP address
-    local current_ip=$(ip addr show $INTERFACE | grep 'inet ' | awk '{print $2}' | cut -d/ -f1)
-    if [ -z "$current_ip" ]; then
-        echo "Requesting DHCP lease..."
-        sudo dhclient $INTERFACE 2>/dev/null
-        sleep 3
-    else
-        echo "Interface already has IP: $current_ip"
-    fi
-    
-    sleep 1
     echo "WiFi is now $(get_wifi_state)"
 }
 
-# Function to disable WiFi
+# Function to disable WiFi cleanly
 wifi_off() {
     echo "Disabling WiFi interface $INTERFACE..."
     
-    # Kill any running dhclient for this interface
-    sudo pkill -f "dhclient.*$INTERFACE" 2>/dev/null || true
+    # First release DHCP lease to be clean
+    sudo dhclient -r $INTERFACE 2>/dev/null || true
+    sleep 1
     
-    # Kill any wpa_supplicant for this interface
+    # Kill processes cleanly
+    sudo pkill -f "dhclient.*$INTERFACE" 2>/dev/null || true
     sudo pkill -f "wpa_supplicant.*$INTERFACE" 2>/dev/null || true
+    sleep 1
     
     # Bring interface down
     sudo ip link set dev $INTERFACE down
     
-    # Disable power save (if interface supports it) - try different paths
-    sudo /usr/sbin/iw dev $INTERFACE set power_save off 2>/dev/null || \
-    sudo /usr/bin/iw dev $INTERFACE set power_save off 2>/dev/null || \
-    sudo iw dev $INTERFACE set power_save off 2>/dev/null || true
+    # Disable power save and USB device
+    if command -v iw >/dev/null 2>&1; then
+        sudo iw dev $INTERFACE set power_save off 2>/dev/null || true
+    fi
     
-    # Disable USB device
     if [ -f "$USB_DEVICE" ]; then
         echo "auto" | sudo tee "$USB_DEVICE" > /dev/null
     fi

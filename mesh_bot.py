@@ -18,7 +18,7 @@ import modules.settings as my_settings
 from modules.system import *
 
 # list of commands to remove from the default list for DM only
-restrictedCommands = ["blackjack", "videopoker", "dopewars", "lemonstand", "golfsim", "mastermind", "hangman", "hamtest", "wifi", "wifioff", "wifion"]
+restrictedCommands = ["blackjack", "videopoker", "dopewars", "lemonstand", "golfsim", "mastermind", "hangman", "hamtest", "wifi", "wifioff", "wifion", "shutdown", "reboot"]
 restrictedResponse = "🤖only available in a Direct Message📵" # "" for none
 
 def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_number, deviceID, isDM):
@@ -121,6 +121,10 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     "wifi": lambda: handle_wifi_command(message, message_from_id, deviceID),
     "wifioff": lambda: handle_wifi_command("wifioff", message_from_id, deviceID),
     "wifion": lambda: handle_wifi_command("wifion", message_from_id, deviceID),
+    "shutdown": lambda: handle_system_command("shutdown", message_from_id, deviceID),
+    "reboot": lambda: handle_system_command("reboot", message_from_id, deviceID),
+    "shutdown": lambda: handle_system_command("shutdown", message_from_id, deviceID),
+    "reboot": lambda: handle_system_command("reboot", message_from_id, deviceID),
     "tide": lambda: handle_tide(message_from_id, deviceID, channel_number),
     "valert": lambda: get_volcano_usgs(),
     "verse": lambda: read_verse(),
@@ -400,9 +404,20 @@ def handle_emergency(message_from_id, deviceID, message):
         return EMERGENCY_RESPONSE
 
 def handle_motd(message, message_from_id, isDM):
-    msg = my_settings.MOTD
-    isAdmin = isNodeAdmin(message_from_id)
-    if  "?" in message:
+    global MOTD
+    isAdmin = False
+    msg = ""
+    # check if the message_from_id is in the bbs_admin_list
+    if bbs_admin_list != ['']:
+        for admin in bbs_admin_list:
+            if str(message_from_id) == admin:
+                isAdmin = True
+                break
+    else:
+        isAdmin = True
+
+    # admin help via DM
+    if  "?" in message and isDM and isAdmin:
         msg = "Message of the day, set with 'motd $ HelloWorld!'"
     elif  "?" in message and isDM and not isAdmin:
         # non-admin help via DM
@@ -1737,7 +1752,7 @@ def handle_wifi_command(message, message_from_id, deviceID):
         return "🚫Access denied - admin only"
     
     command = message.lower().strip()
-    script_path = "script/wifiToggle_network_safe.sh"  # Use the network-safe script
+    script_path = "script/wifiToggle_hardware.sh"  # Use the hardware control script
     
     try:
         # Determine which WiFi command to execute
@@ -1782,70 +1797,63 @@ def handle_wifi_command(message, message_from_id, deviceID):
             if my_settings.solar_conditions_enabled:
                 logger.debug("System: Celestial Telemetry Enabled")
 
-            if my_settings.meshagesTTS:
-                logger.debug("System: Meshages TTS Text-to-Speech Enabled")
+def handle_system_command(command, message_from_id, deviceID):
+    """Handle system shutdown and reboot commands with error handling"""
+    if not enable_runShellCmd:
+        return "🚫System commands disabled in config"
+    
+    # Check if user has permission (admin check)
+    isAdmin = False
+    if bbs_admin_list != ['']:
+        for admin in bbs_admin_list:
+            if str(message_from_id) == admin:
+                isAdmin = True
+                break
+    else:
+        isAdmin = True
+    
+    if not isAdmin:
+        return "🚫Access denied - admin only"
+    
+    try:
+        if command == "shutdown":
+            logger.warning(f"System: SHUTDOWN command initiated by {get_name_from_number(message_from_id, 'long', deviceID)}")
+            # Send immediate response before shutdown
+            response = "🔴System shutting down in 5 seconds..."
+            # Delay shutdown to allow message to be sent
+            import threading
+            def delayed_shutdown():
+                import time
+                time.sleep(5)
+                os.system("sudo halt")
             
-            if my_settings.location_enabled:
-                if my_settings.use_meteo_wxApi:
-                    logger.debug("System: Location Telemetry Enabled using Open-Meteo API")
-                else:
-                    logger.debug("System: Location Telemetry Enabled using NOAA API")
-                    
-            if my_settings.dad_jokes_enabled:
-                logger.debug("System: Dad Jokes Enabled!")
+            threading.Thread(target=delayed_shutdown, daemon=True).start()
+            return response
             
-            if my_settings.coastalEnabled:
-                logger.debug("System: Coastal Forecast and Tide Enabled!")
+        elif command == "reboot":
+            logger.warning(f"System: REBOOT command initiated by {get_name_from_number(message_from_id, 'long', deviceID)}")
+            # Send immediate response before reboot
+            response = "🔄System rebooting in 5 seconds..."
+            # Delay reboot to allow message to be sent
+            import threading
+            def delayed_reboot():
+                import time
+                time.sleep(5)
+                os.system("sudo reboot")
             
-            if games_enabled:
-                logger.debug("System: Games Enabled!")
+            threading.Thread(target=delayed_reboot, daemon=True).start()
+            return response
             
-            if my_settings.wikipedia_enabled:
-                if my_settings.use_kiwix_server:
-                    logger.debug(f"System: Wikipedia search Enabled using Kiwix server at {my_settings.kiwix_url}")
-                else:
-                    logger.debug("System: Wikipedia search Enabled")
+        else:
+            return "❓Usage: shutdown or reboot"
             
-            if my_settings.rssEnable:
-                logger.debug(f"System: RSS Feed Reader Enabled for feeds: {my_settings.rssFeedNames}")
-            if my_settings.enable_headlines:
-                logger.debug("System: News Headlines Enabled from NewsAPI.org")
-            
-            if my_settings.radio_detection_enabled:
-                logger.debug(f"System: Radio Detection Enabled using rigctld at {my_settings.rigControlServerAddress} broadcasting to channels: {my_settings.sigWatchBroadcastCh}")
-            
-            if my_settings.file_monitor_enabled:
-                logger.warning(f"System: File Monitor Enabled for {my_settings.file_monitor_file_path}, broadcasting to channels: {my_settings.file_monitor_broadcastCh}")
-            if my_settings.enable_runShellCmd:
-                logger.debug("System: Shell Command monitor enabled")
-                if my_settings.allowXcmd:
-                    logger.warning("System: File Monitor shell XCMD Enabled")
-            if my_settings.read_news_enabled:
-                logger.debug(f"System: File Monitor News Reader Enabled for {my_settings.news_file_path}")
-            if my_settings.bee_enabled:
-                logger.debug("System: File Monitor Bee Monitor Enabled for 🐝bee.txt")
-            if my_settings.bible_enabled:
-                logger.debug("System: File Monitor Bible Verse Enabled for bible.txt")
-            if my_settings.usAlerts:
-                logger.debug(f"System: Emergency Alert Broadcast Enabled on channel {my_settings.emergency_responder_alert_channel} for interface {my_settings.emergency_responder_alert_interface}")
-            if my_settings.enableDEalerts:
-                logger.debug(f"System: NINA Alerts Enabled with counties {my_settings.myRegionalKeysDE}")
-            if my_settings.volcanoAlertBroadcastEnabled:
-                logger.debug(f"System: Volcano Alert Broadcast Enabled on channels {my_settings.emergency_responder_alert_channel} ignoreUSGSWords {my_settings.ignoreUSGSWords}")
-            if my_settings.ipawsAlertEnabled:
-                logger.debug(f"System: iPAWS Alerts Enabled with FIPS codes {my_settings.myStateFIPSList} ignorelist {my_settings.ignoreFEMAwords}")
-            if my_settings.enableDEalerts:
-                logger.debug(f"System: NINA Alerts Enabled with counties {my_settings.myRegionalKeysDE}")
-            if my_settings.wxAlertBroadcastEnabled:
-                logger.debug(f"System: Weather Alert Broadcast Enabled on channels {my_settings.emergency_responder_alert_channel} ignoreEASwords {my_settings.ignoreEASwords}")
-            if my_settings.emergency_responder_enabled:
-                logger.debug(f"System: Emergency Responder Enabled on channels {my_settings.emergency_responder_alert_channel}")
-            
-            if my_settings.qrz_hello_enabled:
-                if my_settings.train_qrz:
-                    logger.debug("System: QRZ Welcome/Hello Enabled with training mode")
-                else:
-                    logger.debug("System: QRZ Welcome/Hello Enabled")
+    except Exception as e:
+        logger.error(f"System: System command error: {e}")
+        return "💥System command failed - check logs"
+
+def checkPlayingGame(message_from_id, message_string, rxNode, channel_number):
+    playingGame = False
+    game = "None"
 
             if my_settings.enableSMTP:
                 if my_settings.enableImap:
