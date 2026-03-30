@@ -200,6 +200,12 @@ lat = 48.50
 lon = -123.0
 fuzzConfigLocation = True
 fuzzItAll = False
+# database file for saved locations
+locations_db = data/locations.db
+# if True, only administrators can save public locations
+public_location_admin_manage = False
+# if True, only administrators can delete locations
+delete_public_locations_admins_only = False
 
 # Default to metric units rather than imperial
 useMetric = False
@@ -491,3 +497,9 @@ autoBanThreshold = 5
 apiThrottleValue = 20
 # Timeframe for offenses (in seconds)
 autoBanTimeframe = 3600
+
+[dataPersistence]
+# Enable or disable the data persistence loop service
+enabled = True
+# Interval in seconds for the persistence loop (how often to save data)
+interval = 300

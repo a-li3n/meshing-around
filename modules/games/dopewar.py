@@ -5,6 +5,7 @@ import random
 import time
 import pickle
 from modules.log import logger
+from modules.settings import dwPlayerTracker
 
 # Global variables
 total_days = 7 # number of days or rotations the player has to play
@@ -382,15 +383,19 @@ def endGameDw(nodeID):
         with open('data/dopewar_hs.pkl', 'wb') as file:
             pickle.dump(dwHighScore, file)
             msg = "You finished with $" + "{:,}".format(cash) + " and beat the high score!🎉💰"
-        return msg
-    if cash > starting_cash:
+    elif cash > starting_cash:
         msg = 'You made money! 💵 Up ' + str((cash/starting_cash).__round__()) + 'x! Well done.'
-        return msg
-    if cash == starting_cash:
+    elif cash == starting_cash:
         msg = 'You broke even... hope you at least had fun 💉💊'
-        return msg
-    if cash < starting_cash:
+    else:
         msg = "You lost money, better go get a real job.💸"
+
+    # remove player from all trackers and databases
+    dwPlayerTracker[:] = [p for p in dwPlayerTracker if p.get('userID') != nodeID]
+    dwCashDb[:] = [p for p in dwCashDb if p.get('userID') != nodeID]
+    dwInventoryDb[:] = [p for p in dwInventoryDb if p.get('userID') != nodeID]
+    dwLocationDb[:] = [p for p in dwLocationDb if p.get('userID') != nodeID]
+    dwGameDayDb[:] = [p for p in dwGameDayDb if p.get('userID') != nodeID]
     
     return msg
 
@@ -494,6 +499,11 @@ def playDopeWars(nodeID, cmd):
     for i in range(0, len(dwGameDayDb)):
         if dwGameDayDb[i].get('userID') == nodeID:
             inGame = True
+
+    # Allow ending the game from any state while a session is active.
+    cmd_normalized = str(cmd).strip().lower()
+    if inGame and cmd_normalized in ['e', 'end', 'quit', 'exit']:
+        return endGameDw(nodeID)
 
     if not inGame:
         # initalize player in the database
@@ -604,9 +614,6 @@ def playDopeWars(nodeID, cmd):
         elif 'p' in menu_choice:
                 # render_game_screen
                 msg = render_game_screen(nodeID, game_day, total_days, loc_choice, -1, price_list, 0, 'nothing')
-                return msg
-        elif 'e' in menu_choice:
-                msg = endGameDw(nodeID)
                 return msg
         else:
             msg = f'example buy:\nb,drug#,qty# or Sell: s,1,10 qty can be (m)ax\n f,p or end'

@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # Meshtastic Autoresponder MESH Bot
 # K7MHI Kelly Keeton 2025
 try:
@@ -745,6 +745,7 @@ def handle_llm(message_from_id, channel_number, deviceID, message, publicChannel
 
 def handleDopeWars(message, nodeID, rxNode):
     global dwPlayerTracker, dwHighScore
+    msg = ""
 
     # get player's last command
     last_cmd = None
@@ -765,11 +766,6 @@ def handleDopeWars(message, nodeID, rxNode):
             if p.get('userID') == nodeID:
                 p['last_played'] = time.time()
         msg = playDopeWars(nodeID, message)
-
-    # if message starts wth 'e'xit remove player from tracker
-    if message.lower().startswith('e'):
-        dwPlayerTracker[:] = [p for p in dwPlayerTracker if p.get('userID') != nodeID]
-        msg = 'You have exited Dope Wars.'
     return msg
 
 def handle_gTnW(chess = False):
@@ -2499,8 +2495,11 @@ async def main():
         # Create core tasks
         tasks.append(asyncio.create_task(start_rx(), name="mesh_rx"))
         tasks.append(asyncio.create_task(watchdog(), name="watchdog"))
-        
+
         # Add optional tasks
+        if my_settings.dataPersistence_enabled:
+            tasks.append(asyncio.create_task(dataPersistenceLoop(), name="data_persistence"))
+
         if my_settings.file_monitor_enabled:
             tasks.append(asyncio.create_task(handleFileWatcher(), name="file_monitor"))
         

@@ -10,6 +10,7 @@ import json
 import random
 import os
 from modules.log import logger
+from modules.settings import hamtestTracker
 
 class HamTest:
     def __init__(self):
@@ -135,8 +136,16 @@ class HamTest:
         
         # remove the game[id] from the list
         del self.game[id]
+        # hamtestTracker stores dicts like {"nodeID": nodeID, ...}
+        for i in range(len(hamtestTracker)):
+            try:
+                if hamtestTracker[i].get('nodeID') == id:
+                    hamtestTracker.pop(i)
+                    break
+            except Exception:
+                continue
+
         return msg
 
-hamtestTracker = []
 hamtest = HamTest()
    
