@@ -314,6 +314,9 @@ if file_monitor_enabled or read_news_enabled or bee_enabled or enable_runShellCm
     if enable_runShellCmd:
         trap_list = trap_list + ("wifi", "wifion", "wifioff", "shutdown", "reboot")
         help_message = help_message + ", wifi controls, shutdown, reboot"
+    # x: command for shell access
+    if enable_runShellCmd and allowXcmd:
+        trap_list = trap_list + ("x:",)
 
 # clean up the help message
 help_message = help_message.split(", ")

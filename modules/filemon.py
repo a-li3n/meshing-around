@@ -162,7 +162,6 @@ def call_external_script(message, script="runShell.sh"):
     except Exception as e:
         logger.warning(f"FileMon: Error calling external script: {e}")
         return None
-<<<<<<< HEAD
 
 
 waitingXroom = {}   # {message_from_id: (expected_answer, original_command, timestamp)}
@@ -247,5 +246,3 @@ def initNewsSources():
 
 #initialize the headlines on startup
 initNewsSources()
-=======
->>>>>>> 4be78431610f4945a454a273048d8da0612b9821

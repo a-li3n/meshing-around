@@ -459,13 +459,7 @@ try:
     read_news_enabled = config['fileMon'].getboolean('enable_read_news', False) # default disabled
     news_file_path = config['fileMon'].get('news_file_path', '../data/news.txt') # default ../data/news.txt
     news_random_line_only = config['fileMon'].getboolean('news_random_line', False) # default False
-<<<<<<< HEAD
-==== BASE ====
     enable_runShellCmd = config['fileMon'].getboolean('enable_runShellCmd', False) # default False
-==== BASE ====
-=======
-    enable_runShellCmd = config['fileMon'].getboolean('enable_runShellCmd', False) # default False', False) # default False
->>>>>>> 4be78431610f4945a454a273048d8da0612b9821
 
     # games
     game_hop_limit = config['games'].getint('game_hop_limit', 5) # default 5 hops
