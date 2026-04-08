@@ -12,6 +12,8 @@ import base64
 import contextlib # for suppressing output on watchdog
 import io # for suppressing output on watchdog
 # homebrew 'modules'
+from modules.interface_config import parse_tcp_interface_target
+from modules.interface_recovery import schedule_interface_retry
 from modules.settings import *
 from modules.log import logger, getPrettyTime, CustomFormatter
 
@@ -348,7 +350,11 @@ for i in range(1, 10):
             if interface_type == 'serial':
                 globals()[f'interface{i}'] = meshtastic.serial_interface.SerialInterface(globals().get(f'port{i}'))
             elif interface_type == 'tcp':
-                globals()[f'interface{i}'] = meshtastic.tcp_interface.TCPInterface(globals().get(f'hostname{i}'))
+                hostname, port_number = parse_tcp_interface_target(globals().get(f'hostname{i}'))
+                globals()[f'interface{i}'] = meshtastic.tcp_interface.TCPInterface(
+                    hostname=hostname,
+                    portNumber=port_number,
+                )
             elif interface_type == 'ble':
                 globals()[f'interface{i}'] = meshtastic.ble_interface.BLEInterface(globals().get(f'mac{i}'))
             else:
@@ -530,7 +536,9 @@ def decimal_to_hex(decimal_number):
     return f"!{decimal_number:08x}"
 
 def get_name_from_number(number, type='long', nodeInt=1):
-    interface = globals()[f'interface{nodeInt}']
+    interface = globals().get(f'interface{nodeInt}')
+    if interface is None or getattr(interface, 'nodes', None) is None:
+        return str(decimal_to_hex(number))
     name = ""
     
     for node in interface.nodes.values():
@@ -1337,7 +1345,22 @@ def handleAlertBroadcast(deviceID=1):
 def onDisconnect(interface):
     # Handle disconnection of the interface
     logger.warning(f"System: Abrupt Disconnection of Interface detected, attempting reconnect...")
-    interface.close()
+    interface_map = {i: globals().get(f'interface{i}') for i in range(1, 10)}
+    enabled_map = {i: globals().get(f'interface{i}_enabled', False) for i in range(1, 10)}
+    retry_map = {i: globals().get(f'retry_int{i}', False) for i in range(1, 10)}
+    disconnected_index = schedule_interface_retry(interface, interface_map, enabled_map, retry_map)
+
+    try:
+        interface.close()
+    except Exception as e:
+        logger.debug(f"System: Error closing disconnected interface: {e}")
+
+    if disconnected_index is not None:
+        globals()[f'interface{disconnected_index}'] = interface_map[disconnected_index]
+        globals()[f'retry_int{disconnected_index}'] = retry_map[disconnected_index]
+        logger.warning(f"System: Interface{disconnected_index} marked for reconnect")
+    else:
+        logger.warning("System: Disconnected interface could not be matched to configured slots")
 
 # Telemetry Functions
 localTelemetryData = {}
@@ -2245,8 +2268,16 @@ async def retry_interface(nodeID):
                 logger.debug(f"System: Retrying Interface{nodeID} Serial on port: {globals().get(f'port{nodeID}')}")
                 globals()[f'interface{nodeID}'] = meshtastic.serial_interface.SerialInterface(globals().get(f'port{nodeID}'))
             elif interface_type == 'tcp':
-                logger.debug(f"System: Retrying Interface{nodeID} TCP on hostname: {globals().get(f'hostname{nodeID}')}")
-                globals()[f'interface{nodeID}'] = meshtastic.tcp_interface.TCPInterface(globals().get(f'hostname{nodeID}'))
+                raw_target = globals().get(f'hostname{nodeID}')
+                hostname, port_number = parse_tcp_interface_target(raw_target)
+                logger.debug(
+                    f"System: Retrying Interface{nodeID} TCP on target {raw_target!r} "
+                    f"(hostname={hostname!r}, port={port_number})"
+                )
+                globals()[f'interface{nodeID}'] = meshtastic.tcp_interface.TCPInterface(
+                    hostname=hostname,
+                    portNumber=port_number,
+                )
             elif interface_type == 'ble':
                 logger.debug(f"System: Retrying Interface{nodeID} BLE on mac: {globals().get(f'mac{nodeID}')}")
                 globals()[f'interface{nodeID}'] = meshtastic.ble_interface.BLEInterface(globals().get(f'mac{nodeID}'))
@@ -2255,7 +2286,10 @@ async def retry_interface(nodeID):
             globals()[f'max_retry_count{nodeID}'] = interface_retry_count
             globals()[f'retry_int{nodeID}'] = False
     except Exception as e:
-        logger.error(f"System: Error Opening interface{nodeID} on: {e}")
+        logger.error(
+            f"System: Error Opening interface{nodeID} on target "
+            f"{globals().get(f'hostname{nodeID}')!r}: {type(e).__name__}: {e}"
+        )
 
 handleSentinel_spotted = []
 handleSentinel_loop = 0

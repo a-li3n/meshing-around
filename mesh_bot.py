@@ -15,6 +15,7 @@ import os
 from datetime import datetime
 from modules.log import *
 import modules.settings as my_settings
+from modules.interface_lookup import resolve_rx_interface_index
 from modules.system import *
 
 # list of commands to remove from the default list for DM only
@@ -1930,31 +1931,23 @@ def onReceive(packet, interface):
         # Debug print the packet for debugging
         logger.debug(f"Packet Received\n {packet} \n END of packet \n")
 
-    # determine the rxNode based on the interface type
-    if rxType == 'TCPInterface':
-        rxHost = interface.__dict__.get('hostname', 'unknown')
-        rxNodeHostName = interface.__dict__.get('ip', None)
-        rxNode = next(
-            (i for i in range(1, 10)
-            if multiple_interface and rxHost and
-            globals().get(f'hostname{i}', '').split(':', 1)[0] in rxHost and
-            globals().get(f'interface{i}_type', '') == 'tcp'),None)
-
-    if rxType == 'SerialInterface':
-        rxInterface = interface.__dict__.get('devPath', 'unknown')
-        rxNode = next(
-            (i for i in range(1, 10)
-            if globals().get(f'port{i}', '') in rxInterface),None)
-
-    if rxType == 'BLEInterface':
-        rxNode = next(
-            (i for i in range(1, 10)
-            if globals().get(f'interface{i}_type', '') == 'ble'),0)
+    interface_map = {i: globals().get(f'interface{i}') for i in range(1, 10)}
+    interface_types = {i: globals().get(f'interface{i}_type', '') for i in range(1, 10)}
+    tcp_targets = {i: globals().get(f'hostname{i}', '') for i in range(1, 10)}
+    serial_ports = {i: globals().get(f'port{i}', '') for i in range(1, 10)}
+    rxNode = resolve_rx_interface_index(
+        interface,
+        interface_map=interface_map,
+        interface_types=interface_types,
+        tcp_targets=tcp_targets,
+        serial_ports=serial_ports,
+    )
         
     if rxNode is None:
         # default to interface 1 ## FIXME needs better like a default interface setting or hash lookup
         if 'decoded' in packet and packet['decoded']['portnum'] in ['ADMIN_APP', 'SIMULATOR_APP']:
             session_passkey = packet.get('decoded', {}).get('admin', {}).get('sessionPasskey', None)
+        logger.debug(f"System: Could not map {rxType} packet to an enabled interface, defaulting to interface1")
         rxNode = 1
 
     # check if the packet has a channel flag use it ## FIXME needs to be channel hash lookup

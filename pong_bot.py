@@ -14,6 +14,7 @@ from datetime import datetime
 import random
 from modules.log import logger, CustomFormatter, msgLogger
 import modules.settings as my_settings
+from modules.interface_lookup import resolve_rx_interface_index
 from modules.system import *
 
 # Global Variables
@@ -254,47 +255,21 @@ def onReceive(packet, interface):
         # Debug print the packet for debugging
         logger.debug(f"Packet Received\n {packet} \n END of packet \n")
 
-    # set the value for the incomming interface
-    if rxType == 'SerialInterface':
-        rxInterface = interface.__dict__.get('devPath', 'unknown')
-        if port1 in rxInterface: rxNode = 1
-        elif multiple_interface and port2 in rxInterface: rxNode = 2
-        elif multiple_interface and port3 in rxInterface: rxNode = 3
-        elif multiple_interface and port4 in rxInterface: rxNode = 4
-        elif multiple_interface and port5 in rxInterface: rxNode = 5
-        elif multiple_interface and port6 in rxInterface: rxNode = 6
-        elif multiple_interface and port7 in rxInterface: rxNode = 7
-        elif multiple_interface and port8 in rxInterface: rxNode = 8
-        elif multiple_interface and port9 in rxInterface: rxNode = 9
-    
-    if rxType == 'TCPInterface':
-        rxHost = interface.__dict__.get('hostname', 'unknown')
-        if rxHost and hostname1 in rxHost and interface1_type == 'tcp': rxNode = 1
-        elif multiple_interface and rxHost and hostname2 in rxHost and interface2_type == 'tcp': rxNode = 2
-        elif multiple_interface and rxHost and hostname3 in rxHost and interface3_type == 'tcp': rxNode = 3
-        elif multiple_interface and rxHost and hostname4 in rxHost and interface4_type == 'tcp': rxNode = 4
-        elif multiple_interface and rxHost and hostname5 in rxHost and interface5_type == 'tcp': rxNode = 5
-        elif multiple_interface and rxHost and hostname6 in rxHost and interface6_type == 'tcp': rxNode = 6
-        elif multiple_interface and rxHost and hostname7 in rxHost and interface7_type == 'tcp': rxNode = 7
-        elif multiple_interface and rxHost and hostname8 in rxHost and interface8_type == 'tcp': rxNode = 8
-        elif multiple_interface and rxHost and hostname9 in rxHost and interface9_type == 'tcp': rxNode = 9
+    interface_map = {i: globals().get(f'interface{i}') for i in range(1, 10)}
+    interface_types = {i: globals().get(f'interface{i}_type', '') for i in range(1, 10)}
+    tcp_targets = {i: globals().get(f'hostname{i}', '') for i in range(1, 10)}
+    serial_ports = {i: globals().get(f'port{i}', '') for i in range(1, 10)}
+    rxNode = resolve_rx_interface_index(
+        interface,
+        interface_map=interface_map,
+        interface_types=interface_types,
+        tcp_targets=tcp_targets,
+        serial_ports=serial_ports,
+    )
 
-    if rxType == 'SerialInterface':
-        rxInterface = interface.__dict__.get('devPath', 'unknown')
-        rxNode = next(
-            (i for i in range(1, 10)
-             if globals().get(f'port{i}', '') in rxInterface),None)
-    
-    if rxType == 'BLEInterface':
-        if interface1_type == 'ble': rxNode = 1
-        elif multiple_interface and interface2_type == 'ble': rxNode = 2
-        elif multiple_interface and interface3_type == 'ble': rxNode = 3
-        elif multiple_interface and interface4_type == 'ble': rxNode = 4
-        elif multiple_interface and interface5_type == 'ble': rxNode = 5
-        elif multiple_interface and interface6_type == 'ble': rxNode = 6
-        elif multiple_interface and interface7_type == 'ble': rxNode = 7
-        elif multiple_interface and interface8_type == 'ble': rxNode = 8
-        elif multiple_interface and interface9_type == 'ble': rxNode = 9
+    if rxNode is None:
+        logger.debug(f"System: Could not map {rxType} packet to an enabled interface, defaulting to interface1")
+        rxNode = 1
     
     # check if the packet has a channel flag use it
     if packet.get('channel'):

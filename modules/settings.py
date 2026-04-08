@@ -108,7 +108,19 @@ if 'messagingSettings' not in config:
     config.write(open(config_file, 'w'))
 
 if 'fileMon' not in config:
-    config['fileMon'] = {'enabled': 'False', 'file_path': 'alert.txt', 'broadcastCh': '2'}
+    config['fileMon'] = {
+        'filemon_enabled': 'False',
+        'file_path': 'alert.txt',
+        'broadcastCh': '2',
+        'enable_read_news': 'False',
+        'news_file_path': '../data/news.txt',
+        'news_random_line': 'False',
+        'news_block_mode': 'True',
+        'enable_runShellCmd': 'False',
+        'allowXcmd': 'False',
+        'twoFactor_enabled': 'True',
+        'twoFactor_timeout': '100',
+    }
     config.write(open(config_file, 'w'))
 
 if 'scheduler' not in config:
@@ -471,7 +483,11 @@ try:
     read_news_enabled = config['fileMon'].getboolean('enable_read_news', False) # default disabled
     news_file_path = config['fileMon'].get('news_file_path', '../data/news.txt') # default ../data/news.txt
     news_random_line_only = config['fileMon'].getboolean('news_random_line', False) # default False
+    news_block_mode = config['fileMon'].getboolean('news_block_mode', True) # default block mode
     enable_runShellCmd = config['fileMon'].getboolean('enable_runShellCmd', False) # default False
+    allowXcmd = config['fileMon'].getboolean('allowXcmd', False) # default False
+    xCmd2factorEnabled = config['fileMon'].getboolean('twoFactor_enabled', True) # default True
+    xCmd2factor_timeout = config['fileMon'].getint('twoFactor_timeout', 100) # default 100 seconds
 
     # games
     game_hop_limit = config['games'].getint('game_hop_limit', 5) # default 5 hops
