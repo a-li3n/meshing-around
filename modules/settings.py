@@ -367,6 +367,10 @@ try:
     mySAMEList = config['location'].get('mySAMEList', '').split(',') # default empty
     myRegionalKeysDE = config['location'].get('myRegionalKeysDE', '110000000000').split(',') # default city Berlin
     eAlertBroadcastChannel = config['location'].get('eAlertBroadcastCh', '').split(',') # default empty
+    # Backward-compatible aliases used by older boot/logging paths.
+    emergencyAlertBrodcastEnabled = eAlertBroadcastEnabled
+    emergencyAlertBroadcastEnabled = eAlertBroadcastEnabled
+    emergencyAlertBroadcastCh = eAlertBroadcastChannel
 
     # any US alerts enabled
     usAlerts = (
