@@ -8,11 +8,13 @@ import time
 import asyncio
 import random
 import base64
+import pickle
 # not ideal but needed?
 import contextlib # for suppressing output on watchdog
 import io # for suppressing output on watchdog
 # homebrew 'modules'
 from modules.interface_config import parse_tcp_interface_target
+from modules.interface_debug import describe_configured_interface, describe_interface
 from modules.interface_recovery import schedule_interface_retry
 from modules.settings import *
 from modules.log import logger, getPrettyTime, CustomFormatter
@@ -24,6 +26,7 @@ asyncLoop = asyncio.new_event_loop()
 games_enabled = False
 multiPingList = [{'message_from_id': 0, 'count': 0, 'type': '', 'deviceID': 0, 'channel_number': 0, 'startCount': 0}]
 interface_retry_count = 3
+node_name_cache = {}
 
 # Ping Configuration
 if ping_enabled:
@@ -340,11 +343,14 @@ interface1 = interface2 = interface3 = interface4 = interface5 = interface6 = in
 retry_int1 = retry_int2 = retry_int3 = retry_int4 = retry_int5 = retry_int6 = retry_int7 = retry_int8 = retry_int9 = False
 myNodeNum1 = myNodeNum2 = myNodeNum3 = myNodeNum4 = myNodeNum5 = myNodeNum6 = myNodeNum7 = myNodeNum8 = myNodeNum9 = 777
 max_retry_count1 = max_retry_count2 = max_retry_count3 = max_retry_count4 = max_retry_count5 = max_retry_count6 = max_retry_count7 = max_retry_count8 = max_retry_count9 = interface_retry_count
+configured_interface_count = 0
+opened_interface_count = 0
 for i in range(1, 10):
     interface_type = globals().get(f'interface{i}_type')
     if not interface_type or interface_type == 'none' or globals().get(f'interface{i}_enabled') == False:
         # no valid interface found
         continue
+    configured_interface_count += 1
     try:
         if globals().get(f'interface{i}_enabled'):
             if interface_type == 'serial':
@@ -360,9 +366,24 @@ for i in range(1, 10):
             else:
                 logger.critical(f"System: Interface Type: {interface_type} not supported. Validate your config against config.template Exiting")
                 exit()
+            opened_interface_count += 1
     except Exception as e:
-        logger.critical(f"System: abort. Initializing Interface{i} {e}")
-        exit()
+        globals()[f'interface{i}'] = None
+        globals()[f'retry_int{i}'] = True
+        logger.error(f"System: Initializing Interface{i} failed, scheduling retry: {e}")
+        if DEBUGinterfaceRecovery:
+            logger.debug(
+                f"System: Recovery[startup-open-failed] interface{i} configured_type={interface_type} "
+                f"config_target={globals().get(f'hostname{i}') or globals().get(f'port{i}') or globals().get(f'mac{i}')!r} "
+                f"retry_pending={globals()[f'retry_int{i}']} error={str(e)!r}"
+            )
+
+if configured_interface_count == 0:
+    logger.critical("System: No enabled interfaces configured. Validate your config against config.template Exiting")
+    exit()
+
+if opened_interface_count == 0:
+    logger.warning("System: No interfaces initialized successfully at startup; continuing in recovery mode")
 
 # Get my node numbers for global use       
 my_node_ids = [globals().get(f'myNodeNum{i}') for i in range(1, 10)]
@@ -535,42 +556,77 @@ def cleanup_game_trackers(current_time):
 def decimal_to_hex(decimal_number):
     return f"!{decimal_number:08x}"
 
+
+def _get_node_name_cache(nodeInt=1):
+    interface = globals().get(f'interface{nodeInt}')
+    cache = node_name_cache.setdefault(
+        nodeInt,
+        {"key": None, "built_at": 0.0, "long": {}, "short": {}, "short_to_num": {}},
+    )
+
+    if interface is None or getattr(interface, 'nodes', None) is None:
+        cache.update({"key": None, "built_at": time.monotonic(), "long": {}, "short": {}, "short_to_num": {}})
+        return cache
+
+    nodes = interface.nodes if isinstance(interface.nodes, dict) else {}
+    cache_key = (id(interface), len(nodes))
+    now = time.monotonic()
+
+    if cache.get("key") == cache_key and (now - cache.get("built_at", 0.0)) < 5:
+        return cache
+
+    long_names = {}
+    short_names = {}
+    short_to_num = {}
+    for node in nodes.values():
+        node_num = node.get('num')
+        user = node.get('user', {}) or {}
+        long_name = user.get('longName')
+        short_name = user.get('shortName')
+        if node_num is not None:
+            if long_name:
+                long_names[node_num] = long_name
+            if short_name:
+                short_names[node_num] = short_name
+                short_to_num[short_name.lower()] = node_num
+
+    cache.update(
+        {
+            "key": cache_key,
+            "built_at": now,
+            "long": long_names,
+            "short": short_names,
+            "short_to_num": short_to_num,
+        }
+    )
+    return cache
+
 def get_name_from_number(number, type='long', nodeInt=1):
     interface = globals().get(f'interface{nodeInt}')
     if interface is None or getattr(interface, 'nodes', None) is None:
         return str(decimal_to_hex(number))
-    name = ""
-    
-    for node in interface.nodes.values():
-        if number == node['num']:
-            if type == 'long':
-                name = node['user']['longName']
-                return name
-            elif type == 'short':
-                name = node['user']['shortName']
-                return name
-        else:
-            name =  str(decimal_to_hex(number))  # If name not found, use the ID as string
-    return name
+    cache = _get_node_name_cache(nodeInt)
+    if type == 'short':
+        return cache["short"].get(number, str(decimal_to_hex(number)))
+    return cache["long"].get(number, str(decimal_to_hex(number)))
 
 def get_num_from_short_name(short_name, nodeInt=1):
     # First, search the specified interface
-    interface = globals()[f'interface{nodeInt}']
     logger.debug(f"System: Checking Node Number from Short Name: {short_name} on Device: {nodeInt}")
-    for node in interface.nodes.values():
-        if short_name == node['user']['shortName'] or str(short_name).lower() == node['user']['shortName'].lower():
-            return node['num']
+    normalized_short_name = str(short_name).lower()
+    cache = _get_node_name_cache(nodeInt)
+    if normalized_short_name in cache['short_to_num']:
+        return cache['short_to_num'][normalized_short_name]
 
     # If not found, search all other enabled interfaces
     for iface_num in range(1, 10):
         if iface_num == nodeInt:
             continue
         if globals().get(f'interface{iface_num}_enabled'):
-            other_interface = globals().get(f'interface{iface_num}')
-            for node in other_interface.nodes.values():
-                if short_name == node['user']['shortName'] or str(short_name).lower() == node['user']['shortName'].lower():
-                    logger.debug(f"System: Found Device:{iface_num} Node:{node['user']['shortName']}")
-                    return node['num']
+            other_cache = _get_node_name_cache(iface_num)
+            if normalized_short_name in other_cache['short_to_num']:
+                logger.debug(f"System: Found Device:{iface_num} Node:{short_name}")
+                return other_cache['short_to_num'][normalized_short_name]
 
     # !hex node IDs
     if str(short_name).startswith("!"):
@@ -850,15 +906,19 @@ def messageChunker(message):
         
 def send_message(message, ch, nodeid=0, nodeInt=1, bypassChuncking=False):
     # Send a message to a channel or DM
-    interface = globals()[f'interface{nodeInt}']
+    interface = globals().get(f'interface{nodeInt}')
     # Check if the message is empty
     if message == "" or message is None or len(message) == 0:
         return False
+    if interface is None:
+        logger.warning(f"System: send_message skipped, interface{nodeInt} is unavailable")
+        return False
 
     try:
+        message_size = len(message.encode('utf-8'))
         # Force chunking and log if message exceeds maxBuffer
-        if len(message.encode('utf-8')) > maxBuffer:
-            logger.debug(f"System: Message length {len(message.encode('utf-8'))} exceeds maxBuffer{maxBuffer}, forcing chunking.")
+        if message_size > maxBuffer:
+            logger.debug(f"System: Message length {message_size} exceeds maxBuffer{maxBuffer}, forcing chunking.")
             message_list = messageChunker(message)
         elif not bypassChuncking:
             # Split the message into chunks if it exceeds the MESSAGE_CHUNK_SIZE
@@ -868,10 +928,10 @@ def send_message(message, ch, nodeid=0, nodeInt=1, bypassChuncking=False):
 
         if isinstance(message_list, list):
             # Send the message to the channel or DM
-            total_length = sum(len(chunk) for chunk in message_list)
             num_chunks = len(message_list)
-            for m in message_list:
-                chunkOf = f"{message_list.index(m)+1}/{num_chunks}"
+            recipient_name = get_name_from_number(nodeid, 'long', nodeInt) if nodeid else None
+            for chunk_index, m in enumerate(message_list, start=1):
+                chunkOf = f"{chunk_index}/{num_chunks}"
                 if nodeid == 0:
                     # Send to channel
                     if wantAck:
@@ -884,17 +944,17 @@ def send_message(message, ch, nodeid=0, nodeInt=1, bypassChuncking=False):
                     # Send to DM
                     if wantAck:
                         logger.info(f"Device:{nodeInt} " + CustomFormatter.red + f"req.ACK " + f"Chunker{chunkOf} Sending DM: " + CustomFormatter.white + m.replace('\n', ' ') + CustomFormatter.purple +\
-                                 " To: " + CustomFormatter.white + f"{get_name_from_number(nodeid, 'long', nodeInt)}")
+                                 " To: " + CustomFormatter.white + f"{recipient_name}")
                         interface.sendText(text=m, channelIndex=ch, destinationId=nodeid, wantAck=True)
                     else:
                         logger.info(f"Device:{nodeInt} " + CustomFormatter.red + f"Chunker{chunkOf} Sending DM: " + CustomFormatter.white + m.replace('\n', ' ') + CustomFormatter.purple +\
-                                    " To: " + CustomFormatter.white + f"{get_name_from_number(nodeid, 'long', nodeInt)}")
+                                    " To: " + CustomFormatter.white + f"{recipient_name}")
                         interface.sendText(text=m, channelIndex=ch, destinationId=nodeid)
 
                 # Throttle the message sending to prevent spamming the device
-                if (message_list.index(m)+1) % 4 == 0:
+                if chunk_index % 4 == 0:
                     time.sleep(responseDelay + 1)
-                    if (message_list.index(m)+1) % 5 == 0:
+                    if chunk_index % 5 == 0:
                         logger.warning(f"System: throttling rate Interface{nodeInt} on {chunkOf}")
 
                 # wait an amount of time between sending each split message
@@ -1345,6 +1405,8 @@ def handleAlertBroadcast(deviceID=1):
 def onDisconnect(interface):
     # Handle disconnection of the interface
     logger.warning(f"System: Abrupt Disconnection of Interface detected, attempting reconnect...")
+    if DEBUGinterfaceRecovery:
+        logger.debug(f"System: Recovery[disconnect-callback] incoming={describe_interface(interface)}")
     interface_map = {i: globals().get(f'interface{i}') for i in range(1, 10)}
     enabled_map = {i: globals().get(f'interface{i}_enabled', False) for i in range(1, 10)}
     retry_map = {i: globals().get(f'retry_int{i}', False) for i in range(1, 10)}
@@ -1359,8 +1421,11 @@ def onDisconnect(interface):
         globals()[f'interface{disconnected_index}'] = interface_map[disconnected_index]
         globals()[f'retry_int{disconnected_index}'] = retry_map[disconnected_index]
         logger.warning(f"System: Interface{disconnected_index} marked for reconnect")
+        log_interface_recovery_state(disconnected_index, "disconnect-marked")
     else:
         logger.warning("System: Disconnected interface could not be matched to configured slots")
+        if DEBUGinterfaceRecovery:
+            logger.warning(f"System: Recovery[disconnect-unmatched] incoming={describe_interface(interface)}")
 
 # Telemetry Functions
 localTelemetryData = {}
@@ -1387,6 +1452,37 @@ def getNodeFirmware(nodeID=0, nodeInt=1):
         fwVer = console_output.split("firmware_version: ")[1].split("\n")[0]
         return fwVer
     return -1
+
+
+def get_configured_interface_target(nodeID):
+    interface_type = globals().get(f'interface{nodeID}_type', '')
+    if interface_type == 'tcp':
+        return globals().get(f'hostname{nodeID}')
+    if interface_type == 'serial':
+        return globals().get(f'port{nodeID}')
+    if interface_type == 'ble':
+        return globals().get(f'mac{nodeID}')
+    return None
+
+
+def log_interface_recovery_state(nodeID, event, interface=None, level="debug", **details):
+    """Emit a structured recovery snapshot when DEBUGinterfaceRecovery is enabled."""
+    if not DEBUGinterfaceRecovery or nodeID is None:
+        return
+
+    snapshot = describe_configured_interface(
+        nodeID,
+        interface if interface is not None else globals().get(f'interface{nodeID}'),
+        configured_type=globals().get(f'interface{nodeID}_type', ''),
+        config_target=get_configured_interface_target(nodeID),
+        retry_pending=globals().get(f'retry_int{nodeID}'),
+        retries_left=globals().get(f'max_retry_count{nodeID}'),
+    )
+    detail_text = " ".join(f"{key}={value!r}" for key, value in details.items())
+    message = f"System: Recovery[{event}] {snapshot}"
+    if detail_text:
+        message += f" {detail_text}"
+    getattr(logger, level)(message)
 
 def compileFavoriteList(getInterfaceIDs=True):
     # build a list of favorite nodes to add to the device
@@ -1423,6 +1519,10 @@ def displayNodeTelemetry(nodeID=0, rxNode=0, userRequested=False):
     interface = globals()[f'interface{rxNode}']
     myNodeNum = globals().get(f'myNodeNum{rxNode}')
     global localTelemetryData
+
+    if interface is None or getattr(interface, 'nodes', None) is None:
+        log_interface_recovery_state(rxNode, "telemetry-skipped-missing-interface", user_requested=userRequested)
+        return -1
   
     # throttle the telemetry requests to prevent spamming the device
     if 1 <= rxNode <= 9:
@@ -2186,6 +2286,8 @@ async def handleWsjtxWatcher():
     monitor_task = asyncio.create_task(wsjtxMonitor())
     
     while True:
+        if monitor_task.done():
+            await monitor_task
         if wsjtxMsgQueue:
             msg = wsjtxMsgQueue.pop(0)
             logger.debug(f"System: Detected message from WSJT-X: {msg}")
@@ -2214,6 +2316,8 @@ async def handleJs8callWatcher():
     monitor_task = asyncio.create_task(js8callMonitor())
     
     while True:
+        if monitor_task.done():
+            await monitor_task
         if js8callMsgQueue:
             msg = js8callMsgQueue.pop(0)
             logger.debug(f"System: Detected message from JS8Call: {msg}")
@@ -2236,31 +2340,49 @@ async def handleJs8callWatcher():
 async def retry_interface(nodeID):
     global retry_int1, retry_int2, retry_int3, retry_int4, retry_int5, retry_int6, retry_int7, retry_int8, retry_int9
     global max_retry_count1, max_retry_count2, max_retry_count3, max_retry_count4, max_retry_count5, max_retry_count6, max_retry_count7, max_retry_count8, max_retry_count9
-    interface = globals()[f'interface{nodeID}']
-    retry_int = globals()[f'retry_int{nodeID}']
+    interface = globals().get(f'interface{nodeID}')
+    retry_int = globals().get(f'retry_int{nodeID}')
+    log_interface_recovery_state(nodeID, "retry-entry", local_retry=retry_int)
 
     if dont_retry_disconnect:
         logger.critical(f"System: dont_retry_disconnect is set, not retrying interface{nodeID}")
         exit_handler()
 
+    if not globals()[f'retry_int{nodeID}']:
+        log_interface_recovery_state(nodeID, "retry-skipped-flag-cleared")
+        return
+
+    globals()[f'max_retry_count{nodeID}'] -= 1
+    logger.debug(f"System: Retrying interface{nodeID} {globals()[f'max_retry_count{nodeID}']} attempts left")
     if interface is not None:
-        globals()[f'retry_int{nodeID}'] = True
-        globals()[f'max_retry_count{nodeID}'] -= 1
-        logger.debug(f"System: Retrying interface{nodeID} {globals()[f'max_retry_count{nodeID}']} attempts left")
         try:
             interface.close()
             logger.debug(f"System: Retrying interface{nodeID} in 15 seconds")
+            log_interface_recovery_state(nodeID, "retry-close-ok", interface=interface)
         except Exception as e:
             logger.error(f"System: closing interface{nodeID}: {e}")
+            log_interface_recovery_state(nodeID, "retry-close-failed", interface=interface, level="warning", error=str(e))
+    else:
+        log_interface_recovery_state(nodeID, "retry-no-live-interface", local_retry=retry_int)
 
     if globals()[f'max_retry_count{nodeID}'] == 0:
         logger.critical(f"System: Max retry count reached for interface{nodeID}")
         exit_handler()
 
     await asyncio.sleep(15)
+    current_retry = globals()[f'retry_int{nodeID}']
+    log_interface_recovery_state(nodeID, "retry-wake", local_retry=retry_int, global_retry=current_retry)
+    if retry_int != current_retry:
+        log_interface_recovery_state(
+            nodeID,
+            "retry-flag-mismatch",
+            level="warning",
+            local_retry=retry_int,
+            global_retry=current_retry,
+        )
 
     try:
-        if retry_int:
+        if current_retry:
             interface = None
             globals()[f'interface{nodeID}'] = None
             interface_type = globals()[f'interface{nodeID}_type']
@@ -2274,6 +2396,7 @@ async def retry_interface(nodeID):
                     f"System: Retrying Interface{nodeID} TCP on target {raw_target!r} "
                     f"(hostname={hostname!r}, port={port_number})"
                 )
+                log_interface_recovery_state(nodeID, "retry-open-tcp", raw_target=raw_target, hostname=hostname, port=port_number)
                 globals()[f'interface{nodeID}'] = meshtastic.tcp_interface.TCPInterface(
                     hostname=hostname,
                     portNumber=port_number,
@@ -2285,11 +2408,15 @@ async def retry_interface(nodeID):
             # reset the retry_int and retry_count
             globals()[f'max_retry_count{nodeID}'] = interface_retry_count
             globals()[f'retry_int{nodeID}'] = False
+            log_interface_recovery_state(nodeID, "retry-opened")
+        else:
+            log_interface_recovery_state(nodeID, "retry-open-skipped-flag-cleared")
     except Exception as e:
         logger.error(
             f"System: Error Opening interface{nodeID} on target "
             f"{globals().get(f'hostname{nodeID}')!r}: {type(e).__name__}: {e}"
         )
+        log_interface_recovery_state(nodeID, "retry-open-failed", level="exception", error=str(e))
 
 handleSentinel_spotted = []
 handleSentinel_loop = 0
@@ -2404,35 +2531,81 @@ async def watchdog():
 
         # check all interfaces
         for i in range(1, 10):
-            interface = globals().get(f'interface{i}')
-            retry_int = globals().get(f'retry_int{i}')
-            int_enabled = globals().get(f'interface{i}_enabled')
-            if interface is not None and not retry_int and int_enabled:
-                try:
-                    firmware = getNodeFirmware(0, i)
-                except Exception as e:
-                    logger.error(f"System: communicating with interface{i}, trying to reconnect: {e}")
-                    globals()[f'retry_int{i}'] = True
+            try:
+                interface = globals().get(f'interface{i}')
+                retry_int = globals().get(f'retry_int{i}')
+                int_enabled = globals().get(f'interface{i}_enabled')
+                if DEBUGinterfaceRecovery and int_enabled:
+                    log_interface_recovery_state(i, "watchdog-cycle", local_retry=retry_int)
 
-                if not retry_int and int_enabled:
-                    if sentry_enabled:
-                        await handleSentinel(i)
+                if interface is not None and not retry_int and int_enabled:
+                    firmware = None
+                    probe_started = time.monotonic()
+                    if DEBUGinterfaceRecovery:
+                        log_interface_recovery_state(i, "watchdog-probe-start", local_retry=retry_int)
+                    try:
+                        firmware = getNodeFirmware(0, i)
+                        log_interface_recovery_state(
+                            i,
+                            "watchdog-probe-ok",
+                            probe_seconds=round(time.monotonic() - probe_started, 3),
+                            firmware=firmware,
+                        )
+                    except Exception as e:
+                        logger.error(f"System: communicating with interface{i}, trying to reconnect: {e}")
+                        globals()[f'retry_int{i}'] = True
+                        log_interface_recovery_state(
+                            i,
+                            "watchdog-probe-failed",
+                            level="exception",
+                            probe_seconds=round(time.monotonic() - probe_started, 3),
+                            local_retry=retry_int,
+                            global_retry=globals()[f'retry_int{i}'],
+                            error=str(e),
+                        )
 
-                    handleMultiPing(0, i)
+                    current_retry = globals().get(f'retry_int{i}')
+                    if retry_int != current_retry:
+                        log_interface_recovery_state(
+                            i,
+                            "watchdog-retry-flag-mismatch",
+                            level="warning",
+                            local_retry=retry_int,
+                            global_retry=current_retry,
+                        )
 
-                    if usAlerts or checklist_enabled or enableDEalerts:
-                        handleAlertBroadcast(i)
+                    if not current_retry and int_enabled:
+                        if sentry_enabled:
+                            await handleSentinel(i)
 
-                    intData = displayNodeTelemetry(0, i)
-                    if intData != -1 and localTelemetryData[0][f'lastAlert{i}'] != intData:
-                        logger.debug(intData + f" Firmware:{firmware}")
-                        localTelemetryData[0][f'lastAlert{i}'] = intData
+                        handleMultiPing(0, i)
 
-            if retry_int and int_enabled:
-                try:
-                    await retry_interface(i)
-                except Exception as e:
-                    logger.error(f"System: retrying interface{i}: {e}")
+                        if usAlerts or checklist_enabled or enableDEalerts:
+                            handleAlertBroadcast(i)
+
+                        intData = displayNodeTelemetry(0, i)
+                        if intData != -1 and localTelemetryData[0][f'lastAlert{i}'] != intData:
+                            logger.debug(intData + f" Firmware:{firmware}")
+                            localTelemetryData[0][f'lastAlert{i}'] = intData
+                    elif int_enabled:
+                        log_interface_recovery_state(
+                            i,
+                            "watchdog-postcheck-skipped",
+                            local_retry=retry_int,
+                            global_retry=current_retry,
+                        )
+
+                retry_int = globals().get(f'retry_int{i}')
+                if retry_int and int_enabled:
+                    try:
+                        log_interface_recovery_state(i, "watchdog-retry-dispatch", local_retry=retry_int)
+                        await retry_interface(i)
+                    except Exception as e:
+                        logger.error(f"System: retrying interface{i}: {e}")
+                        log_interface_recovery_state(i, "watchdog-retry-failed", level="exception", error=str(e))
+            except Exception as e:
+                logger.error(f"System: watchdog loop error on interface{i}: {e}")
+                log_interface_recovery_state(i, "watchdog-loop-failed", level="exception", error=str(e))
         
         # check for noisy telemetry
         if noisyNodeLogging:
@@ -2480,12 +2653,15 @@ def exit_handler():
     logger.debug(f"System: Closing Autoresponder")
     try:
         logger.debug(f"System: Closing Interface1")
-        interface1.close()
+        if interface1 is not None:
+            interface1.close()
         if multiple_interface:
             for i in range(2, 10):
                 if globals().get(f'interface{i}_enabled'):
                     logger.debug(f"System: Closing Interface{i}")
-                    globals()[f'interface{i}'].close()
+                    interface = globals().get(f'interface{i}')
+                    if interface is not None:
+                        interface.close()
     except Exception as e:
         logger.error(f"System: closing: {e}")
 

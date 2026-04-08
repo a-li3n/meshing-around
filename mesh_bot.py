@@ -12,15 +12,20 @@ import time # for sleep, get some when you can :)
 import random
 import subprocess
 import os
+import threading
 from datetime import datetime
 from modules.log import *
 import modules.settings as my_settings
-from modules.interface_lookup import resolve_rx_interface_index
+from modules.command_access import check_admin_dm_access
+from modules.interface_lookup import build_interface_slots, resolve_rx_interface_index
+from modules.repeater_guard import build_repeater_forward_message, is_repeater_forward
+from modules.service_tasks import run_service_tasks
 from modules.system import *
 
 # list of commands to remove from the default list for DM only
 restrictedCommands = ["blackjack", "videopoker", "dopewars", "lemonstand", "golfsim", "mastermind", "hangman", "hamtest", "tictactoe", "tic-tac-toe", "quiz", "q:", "survey", "s:", "battleship", "wifi", "wifioff", "wifion", "shutdown", "reboot"]
 restrictedResponse = "🤖only available in a Direct Message📵" # "" for none
+RX_INTERFACE_SLOTS = build_interface_slots(globals())
 
 def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_number, deviceID, isDM):
     global cmdHistory
@@ -119,11 +124,11 @@ def auto_response(message, snr, rssi, hop, pkiStatus, message_from_id, channel_n
     "sysinfo": lambda: sysinfo(message, message_from_id, deviceID, isDM),
     "test": lambda: handle_ping(message_from_id, deviceID, message, hop, snr, rssi, isDM, channel_number),
     "testing": lambda: handle_ping(message_from_id, deviceID, message, hop, snr, rssi, isDM, channel_number),
-    "wifi": lambda: handle_wifi_command(message, message_from_id, deviceID),
-    "wifioff": lambda: handle_wifi_command("wifioff", message_from_id, deviceID),
-    "wifion": lambda: handle_wifi_command("wifion", message_from_id, deviceID),
-    "shutdown": lambda: handle_system_command("shutdown", message_from_id, deviceID),
-    "reboot": lambda: handle_system_command("reboot", message_from_id, deviceID),
+    "wifi": lambda: handle_wifi_command(message, message_from_id, deviceID, isDM),
+    "wifioff": lambda: handle_wifi_command("wifioff", message_from_id, deviceID, isDM),
+    "wifion": lambda: handle_wifi_command("wifion", message_from_id, deviceID, isDM),
+    "shutdown": lambda: handle_system_command("shutdown", message_from_id, deviceID, isDM),
+    "reboot": lambda: handle_system_command("reboot", message_from_id, deviceID, isDM),
     "tide": lambda: handle_tide(message_from_id, deviceID, channel_number),
     "valert": lambda: get_volcano_usgs(),
     "verse": lambda: read_verse(),
@@ -1724,23 +1729,23 @@ def handle_whois(message, deviceID, channel_number, message_from_id):
                     msg += f"Loc: {where_am_i(str(location[0]), str(location[1]))}"
         return msg
 
-def handle_wifi_command(message, message_from_id, deviceID):
+def _check_privileged_command_access(message_from_id, isDM):
+    allowed, reason = check_admin_dm_access(bbs_admin_list, message_from_id, isDM)
+    if allowed:
+        return None
+    if reason == "dm_required":
+        return "🚫Access denied - direct message only"
+    return "🚫Access denied - admin only"
+
+
+def handle_wifi_command(message, message_from_id, deviceID, isDM):
     """Handle WiFi toggle commands with error handling"""
     if not enable_runShellCmd:
         return "🚫WiFi control disabled in config"
-    
-    # Check if user has permission (admin check)
-    isAdmin = False
-    if bbs_admin_list != ['']:
-        for admin in bbs_admin_list:
-            if str(message_from_id) == admin:
-                isAdmin = True
-                break
-    else:
-        isAdmin = True
-    
-    if not isAdmin:
-        return "🚫Access denied - admin only"
+
+    access_error = _check_privileged_command_access(message_from_id, isDM)
+    if access_error:
+        return access_error
     
     command = message.lower().strip()
     script_path = "script/wifiToggle_simple.sh"  # Use the simple GPIO-only control script
@@ -1786,23 +1791,14 @@ def handle_wifi_command(message, message_from_id, deviceID):
         logger.error(f"System: WiFi command error: {e}")
         return "💥WiFi command failed - check logs"
 
-def handle_system_command(command, message_from_id, deviceID):
+def handle_system_command(command, message_from_id, deviceID, isDM):
     """Handle system shutdown and reboot commands with error handling"""
     if not enable_runShellCmd:
         return "🚫System commands disabled in config"
-    
-    # Check if user has permission (admin check)
-    isAdmin = False
-    if bbs_admin_list != ['']:
-        for admin in bbs_admin_list:
-            if str(message_from_id) == admin:
-                isAdmin = True
-                break
-    else:
-        isAdmin = True
-    
-    if not isAdmin:
-        return "🚫Access denied - admin only"
+
+    access_error = _check_privileged_command_access(message_from_id, isDM)
+    if access_error:
+        return access_error
     
     try:
         if command == "shutdown":
@@ -1931,16 +1927,10 @@ def onReceive(packet, interface):
         # Debug print the packet for debugging
         logger.debug(f"Packet Received\n {packet} \n END of packet \n")
 
-    interface_map = {i: globals().get(f'interface{i}') for i in range(1, 10)}
-    interface_types = {i: globals().get(f'interface{i}_type', '') for i in range(1, 10)}
-    tcp_targets = {i: globals().get(f'hostname{i}', '') for i in range(1, 10)}
-    serial_ports = {i: globals().get(f'port{i}', '') for i in range(1, 10)}
     rxNode = resolve_rx_interface_index(
         interface,
-        interface_map=interface_map,
-        interface_types=interface_types,
-        tcp_targets=tcp_targets,
-        serial_ports=serial_ports,
+        interface_slots=RX_INTERFACE_SLOTS,
+        interface_getter=lambda index: globals().get(f'interface{index}'),
     )
         
     if rxNode is None:
@@ -2229,19 +2219,7 @@ def onReceive(packet, interface):
 
                     # repeat the message on the other device
                     if my_settings.repeater_enabled and my_settings.multiple_interface:
-                        # wait a responseDelay to avoid message collision from lora-ack.
-                        time.sleep(my_settings.responseDelay)
-                        if len(message_string) > (3 * my_settings.MESSAGE_CHUNK_SIZE):
-                            logger.warning(f"System: Not repeating message, exceeds size limit ({len(message_string)} > {3 * MESSAGE_CHUNK_SIZE})")
-                        else:
-                            rMsg = (f"{message_string} From:{get_name_from_short(message_from_id, 'short', rxNode)}")
-                            # if channel found in the repeater list repeat the message
-                            if str(channel_number) in my_settings.repeater_channels:
-                                for i in range(1, 10):
-                                    if globals().get(f'interface{i}_enabled', False) and i != rxNode:
-                                        logger.debug(f"Repeating message on Device{i} Channel:{channel_number}")
-                                        send_message(rMsg, channel_number, 0, i)
-                                        time.sleep(my_settings.responseDelay)
+                        start_repeater_forward(message_string, message_from_id, channel_number, rxNode)
                     
                     # if QRZ enabled check if we have said hello
                     if my_settings.qrz_hello_enabled:
@@ -2462,6 +2440,41 @@ async def start_rx():
         await asyncio.sleep(0.5)
         pass
 
+
+def repeat_message_on_interfaces(rMsg, channel_number, rxNode):
+    time.sleep(my_settings.responseDelay)
+    for i in range(1, 10):
+        if globals().get(f'interface{i}_enabled', False) and i != rxNode:
+            logger.debug(f"Repeating message on Device{i} Channel:{channel_number}")
+            send_message(rMsg, channel_number, 0, i)
+            time.sleep(my_settings.responseDelay)
+
+
+def start_repeater_forward(message_string, message_from_id, channel_number, rxNode):
+    if str(channel_number) not in my_settings.repeater_channels:
+        return
+    if is_repeater_forward(message_string):
+        logger.debug(
+            f"System: Repeater loop suppression skipped marked message on "
+            f"Device{rxNode} Channel:{channel_number}"
+        )
+        return
+
+    sender_name = get_name_from_number(message_from_id, 'short', rxNode)
+    rMsg = build_repeater_forward_message(message_string, sender_name)
+    if len(rMsg) > (3 * my_settings.MESSAGE_CHUNK_SIZE):
+        logger.warning(
+            f"System: Not repeating message, exceeds size limit "
+            f"({len(rMsg)} > {3 * my_settings.MESSAGE_CHUNK_SIZE})"
+        )
+        return
+
+    threading.Thread(
+        target=repeat_message_on_interfaces,
+        args=(rMsg, channel_number, rxNode),
+        daemon=True,
+    ).start()
+
 # Initialize game trackers
 loadLeaderboard()
 gameTrackers = [
@@ -2520,13 +2533,7 @@ async def main():
         
         logger.debug(f"System: Starting {len(tasks)} async tasks")
         
-        # Wait for all tasks with proper exception handling
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Check for exceptions in results
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.error(f"Task {tasks[i].get_name()} failed with: {result}")
+        await run_service_tasks(tasks)
         
     except Exception as e:
         logger.error(f"Main loop error: {e}")

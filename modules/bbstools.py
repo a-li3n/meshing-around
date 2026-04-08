@@ -3,6 +3,7 @@
 
 import pickle # pip install pickle
 from modules.log import logger
+from modules.pickle_store import load_pickle_store, save_pickle_store
 from modules.settings import bbs_admin_list, bbs_ban_list, MESSAGE_CHUNK_SIZE, bbs_link_enabled, bbs_link_whitelist, responseDelay
 import time
 from datetime import datetime
@@ -145,24 +146,21 @@ def save_bbsdm():
     global bbs_dm
     # save the bbs messages to the database file
     logger.debug("System: Saving Updated BBS Direct Messages data/bbsdm.pkl")
-    with open('data/bbsdm.pkl', 'wb') as f:
-        pickle.dump(bbs_dm, f)
+    save_pickle_store('data/bbsdm.pkl', bbs_dm)
 
 def load_bbsdm():
     global bbs_dm
     # load the bbs messages from the database file
-    try:
-        with open('data/bbsdm.pkl', 'rb') as f:
-            new_bbs_dm = pickle.load(f)
-            if isinstance(new_bbs_dm, list):
-                for msg in new_bbs_dm:
-                    if msg not in bbs_dm:
-                        bbs_dm.append(msg)
-    except:
-        bbs_dm = [[1234567890, "Message", 1234567890]]
-        logger.debug("System: Creating new data/bbsdm.pkl")
-        with open('data/bbsdm.pkl', 'wb') as f:
-            pickle.dump(bbs_dm, f)
+    new_bbs_dm = load_pickle_store(
+        'data/bbsdm.pkl',
+        lambda: [[1234567890, "Message", 1234567890]],
+        logger,
+        'bbs direct mail db',
+    )
+    if isinstance(new_bbs_dm, list):
+        for msg in new_bbs_dm:
+            if msg not in bbs_dm:
+                bbs_dm.append(msg)
 
 def bbs_post_dm(toNode, message, fromNode):
     global bbs_dm

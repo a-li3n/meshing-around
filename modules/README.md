@@ -1098,12 +1098,12 @@ volcanoAlertBroadcastCh = 2
 ```
 
 ### Repeater Settings
-A repeater function for two different nodes and cross-posting messages. The `repeater_channels` is a list of repeater channels that will be consumed and rebroadcast on the same number channel on the other device, node, or interface. Each node should have matching channel numbers. The channel names and PSK do not need to be the same on the nodes. Use this feature responsibly to avoid creating a feedback loop.
+A repeater function for two different nodes and cross-posting messages. The `repeater_channels` value is a comma-separated list of repeater channels that will be consumed and rebroadcast on the same number channel on the other device, node, or interface. Each node should have matching channel numbers. The channel names and PSK do not need to be the same on the nodes. Forwarded repeater traffic is tagged with `[RPT]`, and messages that already carry that marker are not rebroadcast again to suppress repeater loops.
 
 ```ini
 [repeater] # repeater module
 enabled = True
-repeater_channels = [2, 3]
+repeater_channels = 2,3
 ```
 
 ### Wikipedia Search Settings

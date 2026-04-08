@@ -8,15 +8,57 @@ def _get_interface_attr(interface, attr_name, default=None):
     return interface.__dict__.get(attr_name, default)
 
 
+def build_interface_slots(config_source):
+    """Build static interface slot metadata from module globals/config values."""
+    return tuple(
+        {
+            "index": index,
+            "type": config_source.get(f"interface{index}_type", ""),
+            "tcp_target": config_source.get(f"hostname{index}", ""),
+            "serial_port": config_source.get(f"port{index}", ""),
+        }
+        for index in range(1, 10)
+    )
+
+
 def resolve_rx_interface_index(
     interface,
-    interface_map,
-    interface_types,
+    interface_map=None,
+    interface_types=None,
     tcp_targets=None,
     serial_ports=None,
+    interface_slots=None,
+    interface_getter=None,
 ):
     """Resolve the configured interface slot for an incoming packet."""
-    for index, configured_interface in interface_map.items():
+    if interface_slots is None:
+        indexes = set()
+        if interface_map:
+            indexes.update(interface_map.keys())
+        if interface_types:
+            indexes.update(interface_types.keys())
+        if tcp_targets:
+            indexes.update(tcp_targets.keys())
+        if serial_ports:
+            indexes.update(serial_ports.keys())
+        interface_slots = tuple(
+            {
+                "index": index,
+                "type": (interface_types or {}).get(index, ""),
+                "tcp_target": (tcp_targets or {}).get(index, ""),
+                "serial_port": (serial_ports or {}).get(index, ""),
+            }
+            for index in sorted(indexes)
+        )
+
+    def get_configured_interface(index):
+        if interface_getter is not None:
+            return interface_getter(index)
+        return (interface_map or {}).get(index)
+
+    for slot in interface_slots:
+        index = slot["index"]
+        configured_interface = get_configured_interface(index)
         if configured_interface is interface:
             return index
 
@@ -31,11 +73,13 @@ def resolve_rx_interface_index(
         if isinstance(rx_port, str) and rx_port.isdigit():
             rx_port = int(rx_port)
 
-        for index, configured_type in interface_types.items():
+        for slot in interface_slots:
+            index = slot["index"]
+            configured_type = slot.get("type", "")
             if configured_type != "tcp":
                 continue
 
-            host, port = parse_tcp_interface_target((tcp_targets or {}).get(index))
+            host, port = parse_tcp_interface_target(slot.get("tcp_target"))
             if not host:
                 continue
 
@@ -47,13 +91,17 @@ def resolve_rx_interface_index(
 
     if interface_type == "SerialInterface":
         rx_path = str(_get_interface_attr(interface, "devPath", "") or "")
-        for index, configured_type in interface_types.items():
-            configured_port = str((serial_ports or {}).get(index, "") or "")
+        for slot in interface_slots:
+            index = slot["index"]
+            configured_type = slot.get("type", "")
+            configured_port = str(slot.get("serial_port", "") or "")
             if configured_type == "serial" and configured_port and configured_port in rx_path:
                 return index
 
     if interface_type == "BLEInterface":
-        for index, configured_type in interface_types.items():
+        for slot in interface_slots:
+            index = slot["index"]
+            configured_type = slot.get("type", "")
             if configured_type == "ble":
                 return index
 

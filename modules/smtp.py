@@ -4,12 +4,12 @@
 # 2024 Kelly Keeton K7MHI
 
 from modules.log import logger
+from modules.pickle_store import load_pickle_store, save_pickle_store
 from modules.settings import (
     SMTP_SERVER, SMTP_PORT, SMTP_AUTH, SMTP_USERNAME, SMTP_PASSWORD,
     FROM_EMAIL, EMAIL_SUBJECT, enableImap, IMAP_SERVER, IMAP_PORT,
     IMAP_USERNAME, IMAP_PASSWORD, IMAP_FOLDER, sysopEmails, bbs_ban_list
 )
-import pickle
 import time
 import smtplib
 from email.mime.text import MIMEText
@@ -24,6 +24,30 @@ if enableImap:
     # Import IMAP library
     import imaplib
     import email
+
+
+def _normalize_sms_store(records):
+    normalized_records = []
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        node_id = item.get('nodeID')
+        raw_addresses = item.get('sms', [])
+        if isinstance(raw_addresses, str):
+            addresses = [raw_addresses]
+        elif isinstance(raw_addresses, list):
+            addresses = [address for address in raw_addresses if isinstance(address, str) and address]
+        else:
+            addresses = []
+        normalized_records.append({'nodeID': node_id, 'sms': addresses})
+    return normalized_records or [{'nodeID': 0, 'sms': []}]
+
+
+def _get_sms_addresses(nodeID):
+    for item in sms_db:
+        if item['nodeID'] == nodeID:
+            return item['sms']
+    return []
 
 # Send email
 def send_email(to_email, message, nodeID=0):
@@ -102,7 +126,7 @@ def check_email(nodeID, sysop=False):
 
                     if not sysop:
                         # Check if email is whitelisted by particpant in the mesh
-                        for address in sms_db[nodeID]:
+                        for address in _get_sms_addresses(nodeID):
                             if address in email_from:
                                 email_body = email_message.get_payload()
                                 logger.info("System: Email received from: " + email_from[:-6] + " for " + str(nodeID))
@@ -120,14 +144,7 @@ def check_email(nodeID, sysop=False):
         return False
 
 # initalize email db
-email_db = {}
-try:
-    with open('data/email_db.pickle', 'rb') as f:
-        email_db = pickle.load(f)
-except:
-    logger.warning("System: Email db not found, creating a new one")
-    with open('data/email_db.pickle', 'wb') as f:
-        pickle.dump(email_db, f)
+email_db = load_pickle_store('data/email_db.pickle', dict, logger, 'email db')
 
 def store_email(nodeID, email):
     global email_db
@@ -137,45 +154,36 @@ def store_email(nodeID, email):
     email_db[nodeID] = email
 
     # save to a pickle for persistence, this is a simple db, be mindful of risk
-    with open('data/email_db.pickle', 'wb') as f:
-        pickle.dump(email_db, f)
-    f.close()
+    save_pickle_store('data/email_db.pickle', email_db)
     return True
 
 
 # initalize SMS db
-sms_db = [{'nodeID': 0, 'sms':[]}]
-try:
-    with open('data/sms_db.pickle', 'rb') as f:
-        sms_db = pickle.load(f)
-except:
-    logger.warning("System: SMS db not found, creating a new one")
-    with open('data/sms_db.pickle', 'wb') as f:
-        pickle.dump(sms_db, f)
+loaded_sms_db = load_pickle_store('data/sms_db.pickle', lambda: [{'nodeID': 0, 'sms': []}], logger, 'sms db')
+sms_db = _normalize_sms_store(loaded_sms_db)
+if sms_db != loaded_sms_db:
+    save_pickle_store('data/sms_db.pickle', sms_db)
 
 def store_sms(nodeID, sms):
     global sms_db
     try:
         logger.debug("System: Setting SMS for " + str(nodeID))
+        existing_record = None
         # if the nodeID has over 5 sms addresses warn and return
         for item in sms_db:
             if item['nodeID'] == nodeID:
+                existing_record = item
                 if len(item['sms']) >= 5:
                     logger.warning("System: 📵SMS limit reached for " + str(nodeID))
                     return False
         # if not in db, add it
-        if nodeID not in sms_db:
-            sms_db.append({'nodeID': nodeID, 'sms': sms})
+        if existing_record is None:
+            sms_db.append({'nodeID': nodeID, 'sms': [sms]})
         else:
-            # if in db, update it
-            for item in sms_db:
-                if item['nodeID'] == nodeID:
-                    item['sms'].append(sms)
+            existing_record['sms'].append(sms)
 
         # save to a pickle for persistence, this is a simple db, be mindful of risk
-        with open('data/sms_db.pickle', 'wb') as f:
-            pickle.dump(sms_db, f)
-        f.close()
+        save_pickle_store('data/sms_db.pickle', sms_db)
         return True
     except Exception as e:
         logger.warning("System: Failed to store SMS: " + str(e))
@@ -189,15 +197,15 @@ def handle_sms(nodeID, message):
             # remove record from db for nodeID
             sms_db = [item for item in sms_db if item['nodeID'] != nodeID]
             # update the pickle
-            with open('data/sms_db.pickle', 'wb') as f:
-                pickle.dump(sms_db, f)
-            f.close()
+            save_pickle_store('data/sms_db.pickle', sms_db)
             return "📲 address cleared"
         return "📲No address to clear"
     
     # send SMS to SMS in db. if none ask for one
     if message.lower().startswith("setsms"):
         message = message.split(" ", 1)
+        if len(message) < 2:
+            return "?📲setsms: example@phone.co"
         if len(message[1]) < 5:
             return "?📲setsms: example@phone.co"
         if "@" not in message[1] and "." not in message[1]:
@@ -209,17 +217,17 @@ def handle_sms(nodeID, message):
         
     if message.lower().startswith("sms:"):
         message = message.split(" ", 1)
-        if any(item['nodeID'] == nodeID for item in sms_db):
+        if len(message) < 2:
+            return "📲Please provide a message to send"
+        sms_addresses = _get_sms_addresses(nodeID)
+        if sms_addresses:
             count = 0
-            # for all dict items maching nodeID in sms_db send sms
-            for item in sms_db:
-                if item['nodeID'] == nodeID:
-                    smsEmail = item['sms']
-                    logger.info("System: Sending SMS for " + str(nodeID) + " to " + smsEmail[:-6])
-                    if send_email(smsEmail, message[1], nodeID):
-                        count += 1
-                    else: 
-                        return "⛔️Failed to send SMS"
+            for smsEmail in sms_addresses:
+                logger.info("System: Sending SMS for " + str(nodeID) + " to " + smsEmail[:-6])
+                if send_email(smsEmail, message[1], nodeID):
+                    count += 1
+                else: 
+                    return "⛔️Failed to send SMS"
             return "📲SMS sent " + str(count) + " addresses 📤"
         else:
             return "📲No address set, use 📲setsms"

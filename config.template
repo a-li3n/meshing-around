@@ -486,6 +486,8 @@ noisyTelemetryLimit = 5
 logMetaStats = True
 # Enable detailed packet logging all packets
 DEBUGpacket = False
+# Enable targeted interface recovery logging for watchdog/disconnect/retry paths
+DEBUGinterfaceRecovery = False
 # metaPacket detailed logging, the filter negates the port ID
 debugMetadata = False
 metadataFilter = TELEMETRY_APP,POSITION_APP

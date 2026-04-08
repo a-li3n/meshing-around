@@ -2,6 +2,7 @@
 # 2024 Kelly Keeton K7MHI
 
 from modules.log import logger
+from modules.command_access import check_admin_dm_access
 from modules.settings import (
     file_monitor_file_path,
     news_file_path,
@@ -168,10 +169,11 @@ waitingXroom = {}   # {message_from_id: (expected_answer, original_command, time
 def handleShellCmd(message, message_from_id, channel_number, isDM, deviceID):
     if not allowXcmd:
         return "x: command is disabled"
-    if str(message_from_id) not in bbs_admin_list:
+    allowed, reason = check_admin_dm_access(bbs_admin_list, message_from_id, isDM)
+    if not allowed and reason == "admin_required":
         logger.warning(f"FileMon: Unauthorized x: command attempt from {message_from_id}")
         return "x: command not authorized"
-    if not isDM:
+    if not allowed and reason == "dm_required":
         return "x: command not authorized in group chat"
 
     # 2FA logic
@@ -240,7 +242,8 @@ def initNewsSources():
         if file.endswith('_news.txt'):
             source = file[:-9]  # remove _news.txt
             newsSourcesList.append(source)
-            return True
+    if newsSourcesList:
+        return True
     logger.info("FileMon: No news sources found")
     return False
 

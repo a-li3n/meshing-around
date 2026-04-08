@@ -155,7 +155,7 @@ def get_newsAPI(user_search="meshtastic", message_from_id=None, deviceID=None, i
         last_week = datetime.now() - timedelta(days=7)
         newsAPIurl = (
             f"https://newsapi.org/v2/everything?"
-            f"q={user_search}&language=en&from={last_week.strftime('%Y-%m-%d')}&sortBy={newsAPIsort}shedAt&pageSize=5&apiKey={newsAPI_KEY}"
+            f"q={user_search}&language=en&from={last_week.strftime('%Y-%m-%d')}&sortBy={newsAPIsort}&pageSize=5&apiKey={newsAPI_KEY}"
         )
 
         response = requests.get(newsAPIurl, headers={"User-Agent": COMMON_USER_AGENT}, timeout=urlTimeoutSeconds)
