@@ -58,7 +58,7 @@ def parse_log_file(file_path):
     if multiLogReader:
         # set file_path to the cwd of the default project ../log
         log_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'logs')
-        log_files = glob.glob(os.path.join(log_dir, 'meshbot.log.*'))
+        log_files = glob.glob(os.path.join(log_dir, 'meshbot.*.log'))
         print(f"Checking log files: {log_files}")
 
         if log_files:
