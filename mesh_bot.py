@@ -2028,6 +2028,7 @@ def onReceive(packet, interface):
             my_node_nums = [globals().get(f'myNodeNum{i}', 0) for i in range(1, 10)]
             if message_from_id in my_node_nums:
                 logger.warning(f"System: Packet from self {message_from_id} loop or traffic replay detected")
+                return
 
             # get the signal strength and snr if available
             if packet.get('rxSnr') or packet.get('rxRssi'):
